@@ -1,5 +1,4 @@
-use crate::prelude::*;
-use solang_parser::{diagnostics::Diagnostic, parse};
+use crate::{exec_env::{ExecError, ExecResult}, prelude::*};
 
 #[derive(Debug)]
 pub struct Dispatcher {
@@ -9,8 +8,7 @@ pub struct Dispatcher {
 #[derive(Debug)]
 pub enum DispatchResult {
     Success(Option<String>),
-    ParseError(Vec<Diagnostic>),
-    ExecuteError(String),
+    Failure(String),
 }
 
 impl Dispatcher {
@@ -22,15 +20,9 @@ impl Dispatcher {
 
     pub fn dispatch(&mut self, input: &str) -> DispatchResult {
         dbg!(input);
-        match parse(input, 0) {
-            Ok((tree, _)) => {
-                self.env.execute(tree);
-                // TODO
-                DispatchResult::Success(None)
-            },
-            Err(e) => {
-                DispatchResult::ParseError(e)
-            },
+        match self.env.execute(input.to_string()) {
+            Ok(ExecResult { message }) => DispatchResult::Success(message),
+            Err(ExecError { message }) => DispatchResult::Failure(message),
         }
     }
 }

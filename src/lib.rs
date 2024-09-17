@@ -2,6 +2,10 @@ pub mod dispatcher;
 
 pub mod exec_env;
 
+pub mod primitives;
+
+pub mod utils;
+
 pub mod prelude {
     pub use crate::dispatcher::Dispatcher;
     pub use crate::exec_env::ExecEnv;
@@ -34,7 +38,14 @@ contract flipper {
 }
     "#;
 
+
     const INPUT2: &str = "contract test{ uint private a; uint private b; function t() public { a + b; } }";
+    const INPUT3: &str = "bytes248 inspector = abi.encode(a+b);";
+    const INPUT4: &str = "c.funders[c.numFunders++] = Funder({addr: msg.sender, amount: msg.value});";
+    const INPUT5: &str = "struct Funder { address addr; uint amount; } // abcde";
+    const INPUT6: &str = "uint[a][] inspector = bytes(abi.encode(a+b));";
+    const INPUT7: &str = "bytes test = 123;";
+    const INPUT8: &str = "uint256 x = type(uint).max;";
 
     #[test]
     fn parser_test_1() {
@@ -65,9 +76,20 @@ contract flipper {
 
     #[test]
     fn parser_test_2() {
-        println!("input: {}", INPUT2);
-        let (tree, comments) = parse(INPUT2, 0).unwrap();
+        let input = format!("function __test() public {{ {} }}", INPUT8);
+        println!("input: {}", input);
+        let (tree, comments) = parse(&input, 0).unwrap();
         dbg!(tree);
+        dbg!(comments);
+    }
+
+    #[test]
+    fn parser_test_3() {
+        let input = INPUT5;
+        println!("input: {}", input);
+        let (tree, comments) = parse(input, 0).unwrap();
+        dbg!(tree);
+        dbg!(comments);
     }
 
     #[test]
