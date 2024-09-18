@@ -46,6 +46,7 @@ contract flipper {
     const INPUT6: &str = "uint[a][] inspector = bytes(abi.encode(a+b));";
     const INPUT7: &str = "bytes test = 123;";
     const INPUT8: &str = "uint256 x = type(uint).max;";
+    const INPUT9: &str = "bytes test = hex\"1234123\";";
 
     #[test]
     fn parser_test_1() {
@@ -76,7 +77,7 @@ contract flipper {
 
     #[test]
     fn parser_test_2() {
-        let input = format!("function __test() public {{ {} }}", INPUT8);
+        let input = format!("function __test() public {{ {} }}", INPUT9);
         println!("input: {}", input);
         let (tree, comments) = parse(&input, 0).unwrap();
         dbg!(tree);

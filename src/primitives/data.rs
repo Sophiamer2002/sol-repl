@@ -1,106 +1,75 @@
-use std::{collections::HashMap, fmt::{Display, Formatter}, rc::Rc};
+use std::fmt::{Display, Formatter};
+use crate::utils::fraction::Fraction;
+
 use super::prelude::*;
 
 use num_bigint::BigInt;
 
-use crate::utils::fraction::Fraction;
-
-#[derive(Clone, Debug)]
-pub enum Data {
-    Void(),
-    NumberLiteral(Fraction),
-    Basic(BasicData),
-
-    Array(Array),
-    Struct(Struct),
-    Mapping(Mapping),
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum BasicData {
+pub enum Data {
     Bool(Bool),
     Int(Int),
     Uint(Uint),
     Bytes(Bytes),
     Address(Address),
-    StringQ(StringQ),
 }
 
 impl Display for Data {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Data::Void() => write!(f, "void"),
-            Data::NumberLiteral(n) => write!(f, "{}", n),
-            Data::Basic(b) => write!(f, "{}", b),
-            Data::Array(a) => write!(f, "{:?}", a),
-            Data::Struct(s) => write!(f, "{:?}", s),
-            Data::Mapping(m) => write!(f, "{:?}", m),
+            Data::Bool(b) => write!(f, "{}", b.value),
+            Data::Int(i) => write!(f, "{}", i.value),
+            Data::Uint(u) => write!(f, "{}", u.value),
+            Data::Bytes(b) => write!(f, "{:?}", b.value),
+            Data::Address(a) => write!(f, "{:?}", a.value),
         }
     }
 }
 
-impl Display for BasicData {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl Data {
+    pub fn match_type_exact(&self, ty: &BasicType) -> bool {
         match self {
-            BasicData::Bool(b) => write!(f, "{}", b.value),
-            BasicData::Int(i) => write!(f, "{}", i.value),
-            BasicData::Uint(u) => write!(f, "{}", u.value),
-            BasicData::Bytes(b) => write!(f, "{:?}", b.value),
-            BasicData::Address(a) => write!(f, "{:?}", a.value),
-            BasicData::StringQ(s) => write!(f, "{}", s.value),
+            Data::Bool(_) => matches!(ty, BasicType::Bool()),
+            Data::Int(Int{size, ..}) => matches!(ty, BasicType::Int(sz) if sz == size),
+            Data::Uint(Uint{size, ..}) => matches!(ty, BasicType::Uint(sz) if sz == size),
+            Data::Bytes(Bytes{size, ..}) => matches!(ty, BasicType::Bytes(sz) if sz == size),
+            Data::Address(Address { payable, .. }) => matches!(ty, BasicType::Address(p) if p == payable),
+        }
+    }
+
+    // check if self(data) can be converted to ty implicitly.
+    pub fn match_type_auto(&self, ty: &BasicType) -> bool {
+        match self {
+            Data::Bool(_) => matches!(ty, BasicType::Bool()),
+            Data::Int(Int{size, ..}) => matches!(ty, BasicType::Int(sz) if sz <= size),
+            Data::Uint(Uint{size, ..}) => matches!(ty, BasicType::Uint(sz) if sz <= size),
+            Data::Bytes(Bytes{size, ..}) => matches!(ty, BasicType::Bytes(sz) if sz <= size),
+            Data::Address(Address { payable, .. }) => matches!(ty, BasicType::Address(p) if *p || !payable),
+        }
+    }
+
+    pub fn default(ty: &BasicType) -> Self {
+        match ty {
+            BasicType::Bool() => Data::Bool(Bool { value: false }),
+            BasicType::Int(size) => Data::Int(Int { size: *size, value: BigInt::from(0) }),
+            BasicType::Uint(size) => Data::Uint(Uint { size: *size, value: BigInt::from(0) }),
+            BasicType::Bytes(size) => Data::Bytes(Bytes { size: *size, value: vec![0; *size as usize] }),
+            BasicType::Address(true) => Data::Address(Address { payable: true, value: [0; 20] }),
+            BasicType::Address(false) => Data::Address(Address { payable: false, value: [0; 20] }),
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SymbolTable {
-    table: HashMap<String, Entry>,
-}
-
-impl SymbolTable {
-    pub fn new() -> Self {
-        SymbolTable {
-            table: HashMap::new(),
-        }
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<&Entry> {
-        self.table.get(name)
-    }
-
-    pub fn insert_variable(&mut self, name: String, data: Data) -> Result<(), String> {
-        if self.table.contains_key(&name) {
-            return Err(format!("variable {} already exists in the symbol table", name));
-        }
-        self.table.insert(name.clone(), Entry::Data(data));
-        Ok(())
-    }
-
-    pub fn insert_type(&mut self, name: String, ty: Rc<Type>) -> Result<(), String> {
-        if self.table.contains_key(&name) {
-            return Err(format!("variable {} already exists in the symbol table", name));
-        }
-
-        self.table.insert(name, Entry::Type(ty));
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Entry {
-    Type(Rc<Type>),
-    Data(Data),
-}
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Int {
-    pub size: u8, // in bytes.
+    pub size: u16, // in bits
     pub value: BigInt,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Uint {
-    pub size: u8, // in bytes.
+    pub size: u16, // in bits.
     pub value: BigInt,
 }
 
@@ -111,7 +80,7 @@ pub struct Bool {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Bytes {
-    pub size: Option<u8>, // in bytes. if none, then dynamic
+    pub size: u8,
     pub value: Vec<u8>,
 }
 
@@ -121,28 +90,10 @@ pub struct Address {
     pub value: [u8; 20],
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct StringQ {
-    pub value: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct Struct {
-    pub ty: Rc<Type>,
-    pub fields: Vec<Data>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Mapping {
-    pub ty: Rc<Type>,
-    pub map: HashMap<BasicData, Data>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Array {
-    pub ty: Rc<Type>,
-    pub values: HashMap<u32, Data>,
-}
+// #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+// pub struct StringQ {
+//     pub value: String,
+// }
 
 /// see https://docs.soliditylang.org/en/latest/grammar.html#a4.SolidityParser.userDefinableOperator
 pub trait Operator {
@@ -182,8 +133,8 @@ pub trait Operator {
 }
 
 pub trait Number {
-    fn max_value(size: u8) -> BigInt;
-    fn min_value(size: u8) -> BigInt;
+    fn max_value(size: u16) -> BigInt;
+    fn min_value(size: u16) -> BigInt;
 }
 
 pub trait DefaultValue {
@@ -191,16 +142,16 @@ pub trait DefaultValue {
 }
 
 impl Int {
-    pub fn new_from_literal(value: BigInt, size: Option<u8>) -> Result<Self, String> {
+    pub fn new_from_literal(value: BigInt, size: Option<u16>) -> Result<Self, String> {
         let vv = if value >= BigInt::from(0) {
             value.clone()
         } else {
             -value.clone() - 1
         };
-        let sz_need = (vv.bits() + 7) / 8 + 1;
-        if sz_need <= size.unwrap_or(32) as u64 {
+        let sz_need = (vv.bits() + 15) - (vv.bits() + 15) % 8;
+        if sz_need <= size.unwrap_or(256) as u64 {
             Ok(Int {
-                size: size.unwrap_or(sz_need as u8),
+                size: size.unwrap_or(sz_need as u16),
                 value,
             })
         } else {
@@ -209,7 +160,7 @@ impl Int {
     }
 
     pub fn op_assign(&mut self, rhs: &Data, op: fn(&BigInt, &BigInt) -> BigInt) -> Result<Data, String> {
-        if let Data::Basic(BasicData::Int(rhs)) = rhs {
+        if let Data::Int(rhs) = rhs {
             let sz = self.size.max(rhs.size);
             let value = op(&self.value, &rhs.value);
 
@@ -217,10 +168,10 @@ impl Int {
                 return Err("overflow".to_string());
             }
 
-            return Ok(Data::Basic(BasicData::Int(Int {
+            return Ok(Data::Int(Int {
                 size: sz,
                 value,
-            })));
+            }));
         }
 
         Err("type not match".to_string())
@@ -228,11 +179,11 @@ impl Int {
 }
 
 impl Uint {
-    pub fn new_from_literal(value: BigInt, size: Option<u8>) -> Result<Self, String> {
-        let sz_need = (value.bits() + 7) / 8;
-        if sz_need <= size.unwrap_or(32) as u64 {
+    pub fn new_from_literal(value: BigInt, size: Option<u16>) -> Result<Self, String> {
+        let sz_need = (value.bits() + 7) - (value.bits() + 7) % 8;
+        if sz_need <= size.unwrap_or(256) as u64 {
             Ok(Uint {
-                size: size.unwrap_or(sz_need as u8),
+                size: size.unwrap_or(sz_need as u16),
                 value,
             })
         } else {
@@ -242,60 +193,36 @@ impl Uint {
 }
 
 impl Number for Int {
-    fn max_value(size: u8) -> BigInt {
-        (BigInt::from(1) << (size * 8)) - 1
+    fn max_value(size: u16) -> BigInt {
+        (BigInt::from(1) << size) - 1
     }
 
-    fn min_value(size: u8) -> BigInt {
-        -(BigInt::from(1) << (size * 8))
+    fn min_value(size: u16) -> BigInt {
+        -(BigInt::from(1) << size)
     }
 }
 
 impl Number for Uint {
-    fn max_value(size: u8) -> BigInt {
-        (BigInt::from(1) << (size * 8)) - 1
+    fn max_value(size: u16) -> BigInt {
+        (BigInt::from(1) << size) - 1
     }
 
-    fn min_value(size: u8) -> BigInt {
+    fn min_value(_size: u16) -> BigInt {
         BigInt::from(0)
     }
 }
 
-impl DefaultValue for Bool {
-    fn default_value(_: Option<u8>) -> Self {
-        Bool { value: false }
+pub fn number_literal_to_data(num: &Fraction) -> Result<Data, String> {
+    if num.is_non_negative_integer() {
+        Uint::new_from_literal(num.denominator.clone(), None)
+            .map(|uint| Data::Uint(uint))
+    } else if num.is_integer() {
+        Int::new_from_literal(num.denominator.clone(), None)
+            .map(|int| Data::Int(int))
+    } else {
+        Err("not an integer".to_string())
     }
 }
-
-impl DefaultValue for Int {
-    fn default_value(size: Option<u8>) -> Self {
-        let size = size.unwrap_or(32);
-        Int {
-            size,
-            value: BigInt::from(0),
-        }
-    }
-}
-
-impl DefaultValue for Uint {
-    fn default_value(size: Option<u8>) -> Self {
-        let size = size.unwrap_or(32);
-        Uint {
-            size,
-            value: BigInt::from(0),
-        }
-    }
-}
-
-impl DefaultValue for Bytes {
-    fn default_value(size: Option<u8>) -> Self {
-        Bytes {
-            size,
-            value: vec![0; size.unwrap_or(0) as usize],
-        }
-    }
-}
-
 
 // impl Operator for Int {
 //     fn add(&mut self, rhs: &Data) -> Result<Data, String> {
@@ -316,10 +243,10 @@ mod tests {
         let b = BigInt::from(4);
         println!("{}", b.bits());
         println!("{}", a.clone()|b);
-        let data = Data::Basic(BasicData::Int(Int {
+        let data = Data::Int(Int {
             size: 32,
             value: a,
-        }));
+        });
 
         println!("{}", data.to_string());
     }

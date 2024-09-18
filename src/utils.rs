@@ -35,8 +35,8 @@ pub mod fraction {
             }
         }
 
-        pub fn is_positive_integer(&self) -> bool {
-            self.denominator == BigInt::from(1) && self.numerator > BigInt::ZERO
+        pub fn is_non_negative_integer(&self) -> bool {
+            self.denominator == BigInt::from(1) && self.numerator >= BigInt::ZERO
         }
 
         pub fn is_integer(&self) -> bool {
@@ -44,7 +44,7 @@ pub mod fraction {
         }
 
         pub fn to_u32(&self) -> Option<u32> {
-            if self.is_positive_integer() {
+            if self.is_non_negative_integer() {
                 if self.numerator.bits() <= u32::BITS as u64 {
                     return self.numerator.to_u32_digits().1.into_iter().next()
                 }
