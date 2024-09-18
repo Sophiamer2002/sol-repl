@@ -3,7 +3,7 @@ pub mod fraction {
 
     use num_bigint::BigInt;
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub struct Fraction {
         pub numerator: BigInt,
         pub denominator: BigInt,
@@ -33,6 +33,23 @@ pub mod fraction {
             } else {
                 Fraction { numerator, denominator }
             }
+        }
+
+        pub fn is_positive_integer(&self) -> bool {
+            self.denominator == BigInt::from(1) && self.numerator > BigInt::ZERO
+        }
+
+        pub fn is_integer(&self) -> bool {
+            self.denominator == BigInt::from(1)
+        }
+
+        pub fn to_u32(&self) -> Option<u32> {
+            if self.is_positive_integer() {
+                if self.numerator.bits() <= u32::BITS as u64 {
+                    return self.numerator.to_u32_digits().1.into_iter().next()
+                }
+            }
+            None
         }
     }
 
@@ -107,12 +124,6 @@ pub mod fraction {
             let denominator = denominator / &gcd;
 
             Fraction { numerator, denominator }
-        }
-    }
-
-    impl PartialEq for Fraction {
-        fn eq(&self, other: &Self) -> bool {
-            &self.numerator * &other.denominator == &other.numerator * &self.denominator
         }
     }
 

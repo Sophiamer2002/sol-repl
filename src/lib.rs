@@ -7,7 +7,7 @@ pub mod primitives;
 pub mod utils;
 
 pub mod prelude {
-    pub use crate::dispatcher::Dispatcher;
+    pub use crate::dispatcher::{DispatchResult, Dispatcher};
     pub use crate::exec_env::ExecEnv;
 }
 

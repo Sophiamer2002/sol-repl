@@ -9,7 +9,19 @@ fn main() {
         let command = rl.readline(">> ");
 
         match command {
-            Ok(line) => dispatcher.dispatch(&line),
+            Ok(line) => {
+                let result = dispatcher.dispatch(&line);
+                match result {
+                    DispatchResult::Success(message) => {
+                        if let Some(message) = message {
+                            println!("{}", message);
+                        }
+                    }
+                    DispatchResult::Failure(message) => {
+                        println!("Failure: {}", message);
+                    }
+                }
+            }
             Err(_) => break,
         };
     }
