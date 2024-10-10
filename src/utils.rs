@@ -1,7 +1,8 @@
 pub mod fraction {
-    use std::ops::{Add, Div, Mul, Neg, Sub};
+    use num_traits::Num;
+    use std::{ops::{Add, Div, Mul, Neg, Sub}, str::FromStr};
 
-    use num_bigint::BigInt;
+    use num_bigint::{BigInt, BigUint};
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub struct Fraction {
@@ -33,6 +34,23 @@ pub mod fraction {
             } else {
                 Fraction { numerator, denominator }
             }
+        }
+
+        pub fn new_from_number_literal(num: String) -> Result<Self, String> {
+            let numerator = BigInt::from_str(&num).map_err(|_| format!("invalid number literal: {}", num))?;
+            Ok(Fraction {
+                numerator,
+                denominator: BigInt::from(1),
+            })
+        }
+
+        pub fn new_from_hex_num_literal(num: String) -> Result<Self, String> {
+            let numerator = BigInt::from_str_radix(&num, 16)
+                .map_err(|_| format!("invalid hex number literal: {}", num))?;
+            Ok(Fraction {
+                numerator,
+                denominator: BigInt::from(1),
+            })
         }
 
         pub fn is_non_negative_integer(&self) -> bool {

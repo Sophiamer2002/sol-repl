@@ -11,15 +11,14 @@ pub struct Storage {
 
 #[derive(Clone, Debug)]
 pub enum StorageSlot {
-    D(Data),
+    D(Primitive),
     Array {
-        value_type: Rc<Type>,
-        sz: Option<u32>,
+        ty: Rc<Type>,
         values: Vec<usize>,
     },
     Mapping {
         ty: Rc<Type>,
-        map: HashMap<Data, usize>,
+        map: HashMap<Primitive, usize>,
     },
     Struct {
         ty: Rc<Type>,
@@ -37,7 +36,7 @@ pub struct Memory {
 
 #[derive(Clone, Debug)]
 pub enum MemorySlot {
-    D(Data),
+    D(Primitive),
     Array {
         value_type: Rc<Type>,
         sz: u32,
@@ -71,7 +70,7 @@ impl Storage {
         self.table.get(slot)
     }
 
-    pub fn get_data(&mut self, slot: usize) -> Option<&mut Data> {
+    pub fn get_data(&mut self, slot: usize) -> Option<&mut Primitive> {
         if let Some(StorageSlot::D(data)) = self.table.get_mut(slot) {
             Some(data)
         } else {
@@ -79,13 +78,24 @@ impl Storage {
         }
     }
 
+    pub fn get_compound_type(&mut self, slot: usize) -> Option<Rc<Type>> {
+        if let Some(slot) = self.table.get(slot) {
+            match slot {
+                StorageSlot::Array { ty, .. } => Some(ty.clone()),
+                StorageSlot::Mapping { ty, .. } => Some(ty.clone()),
+                StorageSlot::Struct { ty, .. } => Some(ty.clone()),
+                _ => None,
+            }
+        } else { None }
+    }
+
     // check if the content in the slot can be applied to a variable of type ty.
     pub fn match_type(&self, slot: usize, ty: &Rc<Type>) -> bool {
         if let Some(slot) = self.table.get(slot) {
             match (slot, &**ty) {
                 (StorageSlot::D(data), Type::B(ty)) => data.match_type_auto(ty),
-                (StorageSlot::Array { value_type, sz, .. }, Type::C(CompoundType::Array { value, len })) => {
-                    value_type == value && sz == len
+                (StorageSlot::Array { ty: slot_ty, .. }, Type::C(CompoundType::Array { .. })) => {
+                    ty == slot_ty
                 },
                 (StorageSlot::Mapping { ty: slot_ty, .. }, Type::C(CompoundType::Mapping { .. })) => {
                     ty == slot_ty
@@ -96,6 +106,12 @@ impl Storage {
                 _ => false,
             }
         } else { false }
+    }
+
+    pub fn assign_basic_data(&mut self, data: Primitive) -> usize {
+        let slot = self.table.len();
+        self.table.push(StorageSlot::D(data));
+        slot
     }
 
     pub fn assign_mapping(&mut self, ty: &Rc<Type>) -> usize {
@@ -116,8 +132,7 @@ impl Storage {
 
                 let slot = self.table.len();
                 self.table.push(StorageSlot::Array {
-                    value_type: value.clone(),
-                    sz: Some(*len),
+                    ty: ty.clone(),
                     values: slots,
                 });
                 return slot
@@ -145,7 +160,7 @@ impl Storage {
         match &**ty {
             Type::B(ty) => {
                 let slot = self.table.len();
-                self.table.push(StorageSlot::D(Data::default(ty)));
+                self.table.push(StorageSlot::D(Primitive::default(ty)));
                 slot
             },
             Type::C(CompoundType::Array { .. }) => {
@@ -157,11 +172,14 @@ impl Storage {
             Type::C(CompoundType::Struct { .. }) => {
                 self.assign_struct(ty)
             },
-            Type::C(CompoundType::DynamicBytes()) => {
+            Type::C(CompoundType::DynamicBytes) => {
                 unimplemented!()
             },
-            Type::C(CompoundType::String()) => {
+            Type::C(CompoundType::String) => {
                 unimplemented!()
+            },
+            Type::Literal => {
+                panic!("Literal type cannot be default")
             },
         }
     }
@@ -178,7 +196,7 @@ impl Memory {
         self.table.get(slot)
     }
 
-    pub fn get_data(&mut self, slot: usize) -> Option<&mut Data> {
+    pub fn get_data(&mut self, slot: usize) -> Option<&mut Primitive> {
         if let Some(MemorySlot::D(data)) = self.table.get_mut(slot) {
             Some(data)
         } else {

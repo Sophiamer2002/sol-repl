@@ -5,6 +5,7 @@ use super::prelude::*;
 pub enum Type {
     B(BasicType),
     C(CompoundType),
+    Literal,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -18,8 +19,8 @@ pub enum BasicType {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum CompoundType {
-    String(),
-    DynamicBytes(),
+    String,
+    DynamicBytes,
     Struct {
         identifier: String,
         fields: Vec<(String, Rc<Type>)>
@@ -34,63 +35,63 @@ pub enum CompoundType {
     },
 }
 
-impl BasicType {
-    // check if data can be implicitly converted to self(basic type)
-    // and return the converted data if possible.
-    pub fn fit(&self, mut data: Data) -> Result<Data, String> {
-        match self {
-            BasicType::Bool() => match data {
-                Data::Bool(_) => Ok(data),
-                _ => Err(format!("cannot convert {:?} to bool", data))
-            },
-            BasicType::Int(size) => match &mut data {
-                Data::Int(i) => {
-                    if i.size <= *size {
-                        i.size = *size;
-                        Ok(data)
-                    } else {
-                        Err(format!("cannot convert int{} to int{}", i.size, size))
-                    }
-                },
-                _ => Err(format!("cannot convert {:?} to int{}", data, size))
-            },
-            BasicType::Uint(size) => match &mut data {
-                Data::Uint(i) => {
-                    if i.size <= *size {
-                        i.size = *size;
-                        Ok(data)
-                    } else {
-                        Err(format!("cannot convert uint{} to uint{}", i.size, size))
-                    }
-                },
-                _ => Err(format!("cannot convert {:?} to uint{}", data, size))
-            },
-            BasicType::Bytes(size) => match &mut data {
-                Data::Bytes(b) => {
-                    if b.size <= *size {
-                        b.size = *size;
-                        b.value.resize(*size as usize, 0);
-                        Ok(data)
-                    } else {
-                        Err(format!("cannot convert bytes{} to bytes{}", b.size, size))
-                    }
-                },
-                _ => Err(format!("cannot convert {:?} to bytes{}", data, size))
-            },
-            BasicType::Address(payable) => match &mut data {
-                Data::Address(a) => {
-                    if a.payable <= *payable {
-                        a.payable = *payable;
-                        Ok(data)
-                    } else {
-                        Err(format!("cannot convert address{} to address{}", a.payable, payable))
-                    }
-                },
-                _ => Err(format!("cannot convert {:?} to address{}", data, payable))
-            },
-        }
-    }
-}
+// impl BasicType {
+//     // check if data can be implicitly converted to self(basic type)
+//     // and return the converted data if possible.
+//     pub fn fit(&self, mut data: Data) -> Result<Data, String> {
+//         match self {
+//             BasicType::Bool() => match data {
+//                 Data::Bool(_) => Ok(data),
+//                 _ => Err(format!("cannot convert {:?} to bool", data))
+//             },
+//             BasicType::Int(size) => match &mut data {
+//                 Data::Int(i) => {
+//                     if i.size <= *size {
+//                         i.size = *size;
+//                         Ok(data)
+//                     } else {
+//                         Err(format!("cannot convert int{} to int{}", i.size, size))
+//                     }
+//                 },
+//                 _ => Err(format!("cannot convert {:?} to int{}", data, size))
+//             },
+//             BasicType::Uint(size) => match &mut data {
+//                 Data::Uint(i) => {
+//                     if i.size <= *size {
+//                         i.size = *size;
+//                         Ok(data)
+//                     } else {
+//                         Err(format!("cannot convert uint{} to uint{}", i.size, size))
+//                     }
+//                 },
+//                 _ => Err(format!("cannot convert {:?} to uint{}", data, size))
+//             },
+//             BasicType::Bytes(size) => match &mut data {
+//                 Data::Bytes(b) => {
+//                     if b.size <= *size {
+//                         b.size = *size;
+//                         b.value.resize(*size as usize, 0);
+//                         Ok(data)
+//                     } else {
+//                         Err(format!("cannot convert bytes{} to bytes{}", b.size, size))
+//                     }
+//                 },
+//                 _ => Err(format!("cannot convert {:?} to bytes{}", data, size))
+//             },
+//             BasicType::Address(payable) => match &mut data {
+//                 Data::Address(a) => {
+//                     if a.payable <= *payable {
+//                         a.payable = *payable;
+//                         Ok(data)
+//                     } else {
+//                         Err(format!("cannot convert address{} to address{}", a.payable, payable))
+//                     }
+//                 },
+//                 _ => Err(format!("cannot convert {:?} to address{}", data, payable))
+//             },
+//         }
+//     }
+// }
 
 impl Type {
     // check if data of the type can be stored in memory
@@ -98,12 +99,13 @@ impl Type {
         match self {
             Type::B(_) => true,
             Type::C(c) => match c {
-                CompoundType::String() => true,
-                CompoundType::DynamicBytes() => true,
+                CompoundType::String => true,
+                CompoundType::DynamicBytes => true,
                 CompoundType::Struct { .. } => true,
                 CompoundType::Mapping { .. } => false,
                 CompoundType::Array { .. } => true,
-            }
+            },
+            Type::Literal => false,
         }
     }
 }

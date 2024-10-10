@@ -599,6 +599,7 @@ name = "sol-repl"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "num-traits",
  "rustyline",
  "solang-parser",
 ]
