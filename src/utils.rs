@@ -2,7 +2,7 @@ pub mod fraction {
     use num_traits::Num;
     use std::{ops::{Add, Div, Mul, Neg, Sub}, str::FromStr};
 
-    use num_bigint::{BigInt, BigUint};
+    use num_bigint::BigInt;
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub struct Fraction {

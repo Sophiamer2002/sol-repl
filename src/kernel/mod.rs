@@ -27,7 +27,7 @@ pub struct Kernel {
 
 pub enum EvalResult {
     Void(),
-    Data(bool, DataRef), // bool: is lvalue, or is a reference to existing data
+    Data(DataRef),
 }
 
 impl Kernel {
@@ -66,23 +66,19 @@ impl Kernel {
                 let ty = self.get_type(ty)?;
                 match (storage, &*ty) {
                     (Some(_), Type::C(_)) => {
-                        if init.is_none() {
-                            Err("Expected initializer for reference type".to_string())
-                        } else {
-                            let result = self.eval(init.unwrap())?;
-                            match result {
-                                EvalResult::Data(true, data_ref) => {
-                                    if data_ref.ty == ty {
-                                        self.symbol_table.insert(name, Entry::Data(data_ref));
-                                        Ok(None)
-                                    } else {
-                                        Err("Invalid initializer".to_string())
-                                    }
+                        if let Some(init) = init {
+                            match self.eval(init)? {
+                                EvalResult::Data(data_ref) => {
+                                    let data_ref = data_ref.assign_to(ty, Indirection::Ref)?;
+                                    self.symbol_table.insert(name, Entry::Data(data_ref));
+                                    Ok(None)
                                 },
                                 _ => {
                                     Err("Invalid initializer".to_string())
                                 }
                             }
+                        } else {
+                            Err("Expected initializer for reference type".to_string())
                         }
                     },
                     (Some(_), Type::B(_)) => {
@@ -91,25 +87,25 @@ impl Kernel {
                     (None, _) => {
                         let data = if let Some(init) = init {
                             match self.eval(init)? {
-                                EvalResult::Data(lvalue, data) => {
-                                    data.copy_from_data(ty.clone(), lvalue)?
+                                EvalResult::Data(data) => {
+                                    data.assign_to(ty, Indirection::LValue)?
                                 },
                                 _ => return Err("Invalid initializer".to_string()),
                             }
                         } else {
-                            DataRef::default(ty.clone())
+                            DataRef::default(ty.clone(), Indirection::LValue)
                         };
 
                         self.symbol_table.insert(name, Entry::Data(data));
                         Ok(None)
                     },
-                    (_, Type::Literal) => panic!("Literal type cannot be in the type table"),
+                    (_, Type::NumLiteral(_)) => panic!("Literal type cannot be in the type table"),
                 }
             },
             ParseUnit::Expression(expr) => {
                 match self.eval(expr)? {
                     EvalResult::Void() => Ok(None),
-                    EvalResult::Data(_, data) => {
+                    EvalResult::Data(data) => {
                         Ok(Some(format!("{:?}", data)))
                     },
                 }
@@ -142,7 +138,7 @@ impl Kernel {
                     // TODO: data may also be a reference to type
                     //       now we directly parse a type variable
                     //       in a function call
-                    Ok(EvalResult::Data(true, data_ref.clone()))
+                    Ok(EvalResult::Data(data_ref.clone()))
                 } else {
                     Err(format!("Identifier {} not found", name))
                 }
@@ -159,12 +155,12 @@ impl Kernel {
                     unimplemented!()
                 }
                 let data = DataRef::number_literal_to_data(num)?;
-                Ok(EvalResult::Data(false, data))
+                Ok(EvalResult::Data(data))
             },
 
             Expression::HexNumberLiteral(_, num, None) => {
                 let data = DataRef::number_literal_to_data(num)?;
-                Ok(EvalResult::Data(false, data))
+                Ok(EvalResult::Data(data))
             },
 
             Expression::ArrayLiteral(_, exprs) => {
@@ -172,32 +168,23 @@ impl Kernel {
                     return Err("Unable to deduce common type for array elements".to_string());
                 }
                 let results = exprs.into_iter().map(|expr| self.eval(expr)).collect::<Result<Vec<_>, _>>()?;
-                if results.iter().any(|r| !matches!(r, EvalResult::Data(_, _))) {
+                if results.iter().any(|r| !matches!(r, EvalResult::Data(_))) {
                     return Err("Invalid array element".to_string());
                 }
 
-                let data: Vec<_> = results.iter().map(|r| {
+                let data: Vec<_> = results.into_iter().map(|r| {
                     match r {
-                        EvalResult::Data(_, data_ref) => data_ref,
+                        EvalResult::Data(data_ref) => data_ref,
                         _ => unreachable!(),
                     }
                 }).collect();
 
-                let ty = DataRef::deduct_common_types(data)?;
-                // TODO: ty may not in the type table
-                let data: Vec<_> = results.iter().map(|r| {
-                    match r {
-                        EvalResult::Data(is_lvalue, data_ref) => {
-                            data_ref.copy_from_data(ty.clone(), *is_lvalue)
-                        },
-                        _ => unreachable!(),
-                    }
-                }).collect::<Result<Vec<_>, _>>()?;
+                let ty = DataRef::deduct_common_types(&data)?;
 
                 let ty = self.get_or_insert_type(Type::C(
                     CompoundType::Array { len: Some(data.len() as u32), value: ty }));
                 
-                Ok(EvalResult::Data(false, DataRef::new_array(ty, data)))
+                Ok(EvalResult::Data(DataRef::new_array(ty, data)))
             },
 
             // Operators
@@ -211,19 +198,22 @@ impl Kernel {
 
                         Err("Function call not supported".to_string())
                     },
+                    // TODO: type conversion
+                    // TODO: abi encoding
                     Expression::MemberAccess(_, expr, Identifier { name, .. }) => {
                         // accessing a method
                         let data = self.eval(*expr)?;
                         let args = args.into_iter().map(|arg| {
                             match self.eval(arg) {
-                                Ok(EvalResult::Data(_, data_ref)) => Ok(data_ref),
+                                Ok(EvalResult::Data(data_ref)) => Ok(data_ref),
                                 _ => Err("Invalid argument".to_string()),
                             }
                         }).collect::<Result<Vec<_>, _>>()?;
                         match data {
-                            EvalResult::Data(_, data_ref) => {
-                                data_ref.call_method(name, args);
-                                unimplemented!()
+                            EvalResult::Data(data_ref) => {
+                                data_ref.call_method(name, args).map(|d| {
+                                    d.map(|d| EvalResult::Data(d)).unwrap_or(EvalResult::Void())
+                                })
                             },
                             _ => Err("Invalid member access".to_string()),
                         }
@@ -239,9 +229,9 @@ impl Kernel {
 
                 let result = self.eval(*expr)?;
                 match result {
-                    EvalResult::Data(_, data_ref) => {
-                        data_ref.extract_member(name).map(|(data, is_lvalue)| {
-                            EvalResult::Data(is_lvalue, data)
+                    EvalResult::Data(data_ref) => {
+                        data_ref.extract_member(name).map(|data_ref| {
+                            EvalResult::Data(data_ref)
                         })
                     },
                     _ => Err("Invalid member access".to_string()),
@@ -250,15 +240,16 @@ impl Kernel {
 
             Expression::ArraySubscript(_, expr, Some(idx)) => {
                 let idx = match self.eval(*idx)? {
-                    EvalResult::Data(_, data_ref) => data_ref,
+                    EvalResult::Data(data_ref) => data_ref,
                     _ => return Err("Invalid array subscript".to_string()),
                 };
                 let data = match self.eval(*expr)? {
-                    EvalResult::Data(_, data_ref) => data_ref,
+                    EvalResult::Data(data_ref) => data_ref,
                     _ => return Err("Invalid array subscript".to_string()),
                 };
-                data.subscript(idx);
-                unimplemented!()
+                data.subscript(idx).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
             },
 
             Expression::ArraySubscript(_, _, None) => {
@@ -266,23 +257,94 @@ impl Kernel {
             },
 
             Expression::Assign(_, lhs, rhs) => {
-                unimplemented!()
+                let mut lhs = match self.eval(*lhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid assignment".to_string()),
+                };
+
+                let rhs = match self.eval(*rhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid assignment".to_string()),
+                };
+
+                lhs.assign_from(&rhs)?;
+                Ok(EvalResult::Void())
             },
 
             Expression::Add(_, lhs, rhs) => {
-                unimplemented!()
+                let lhs = match self.eval(*lhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid addition".to_string()),
+                };
+
+                let rhs = match self.eval(*rhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid addition".to_string()),
+                };
+
+                lhs.op(Operator::Add, &rhs).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
             },
 
             Expression::Subtract(_, lhs, rhs) => {
-                unimplemented!()
+                let lhs = match self.eval(*lhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid subtraction".to_string()),
+                };
+
+                let rhs = match self.eval(*rhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid subtraction".to_string()),
+                };
+
+                lhs.op(Operator::Sub, &rhs).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
             },
 
             Expression::Multiply(_, lhs, rhs) => {
-                unimplemented!()
+                let lhs = match self.eval(*lhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid multiplication".to_string()),
+                };
+
+                let rhs = match self.eval(*rhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid multiplication".to_string()),
+                };
+
+                lhs.op(Operator::Mul, &rhs).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
             },
 
             Expression::Divide(_, lhs, rhs) => {
-                unimplemented!()
+                let lhs = match self.eval(*lhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid division".to_string()),
+                };
+
+                let rhs = match self.eval(*rhs)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid division".to_string()),
+                };
+
+                lhs.op(Operator::Div, &rhs).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
+            },
+
+            Expression::Negate(_, expr) => {
+                let zero = DataRef::number_literal_to_data("0".to_string()).unwrap();
+                let expr = match self.eval(*expr)? {
+                    EvalResult::Data(data_ref) => data_ref,
+                    _ => return Err("Invalid negation".to_string()),
+                };
+
+                zero.op(Operator::Sub, &expr).map(|data_ref| {
+                    EvalResult::Data(data_ref)
+                })
             },
 
             _ => unimplemented!()
@@ -321,7 +383,7 @@ impl Kernel {
                 let ty = self.get_type(*expr)?;
                 let sz = self.eval(*sz)?;
                 let sz = match sz {
-                    EvalResult::Data(_, data_ref) => {
+                    EvalResult::Data(data_ref) => {
                         data_ref.extract_number_literal().ok_or("Invalid array size".to_string())?
                     },
                     _ => return Err("Invalid array size".to_string()),
@@ -422,13 +484,10 @@ pub mod types;
 
 pub mod primitive;
 
-pub mod storage;
-
 pub mod data;
 
 pub mod prelude {
     pub use super::types::*;
     pub use super::primitive::*;
-    pub use super::storage::*;
     pub use super::data::*;
 }

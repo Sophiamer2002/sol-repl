@@ -1,11 +1,15 @@
 use std::rc::Rc;
-use super::prelude::*;
 
+use num_bigint::BigInt;
+
+use crate::utils::fraction::Fraction;
+
+pub type Ty = Rc<Type>;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Type {
     B(BasicType),
     C(CompoundType),
-    Literal,
+    NumLiteral(Fraction),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -23,7 +27,7 @@ pub enum CompoundType {
     DynamicBytes,
     Struct {
         identifier: String,
-        fields: Vec<(String, Rc<Type>)>
+        fields: Vec<(String, Ty)>
     },
     Mapping {
         key: Rc<Type>,  // shall be a basic type
@@ -35,147 +39,135 @@ pub enum CompoundType {
     },
 }
 
-// impl BasicType {
-//     // check if data can be implicitly converted to self(basic type)
-//     // and return the converted data if possible.
-//     pub fn fit(&self, mut data: Data) -> Result<Data, String> {
-//         match self {
-//             BasicType::Bool() => match data {
-//                 Data::Bool(_) => Ok(data),
-//                 _ => Err(format!("cannot convert {:?} to bool", data))
-//             },
-//             BasicType::Int(size) => match &mut data {
-//                 Data::Int(i) => {
-//                     if i.size <= *size {
-//                         i.size = *size;
-//                         Ok(data)
-//                     } else {
-//                         Err(format!("cannot convert int{} to int{}", i.size, size))
-//                     }
-//                 },
-//                 _ => Err(format!("cannot convert {:?} to int{}", data, size))
-//             },
-//             BasicType::Uint(size) => match &mut data {
-//                 Data::Uint(i) => {
-//                     if i.size <= *size {
-//                         i.size = *size;
-//                         Ok(data)
-//                     } else {
-//                         Err(format!("cannot convert uint{} to uint{}", i.size, size))
-//                     }
-//                 },
-//                 _ => Err(format!("cannot convert {:?} to uint{}", data, size))
-//             },
-//             BasicType::Bytes(size) => match &mut data {
-//                 Data::Bytes(b) => {
-//                     if b.size <= *size {
-//                         b.size = *size;
-//                         b.value.resize(*size as usize, 0);
-//                         Ok(data)
-//                     } else {
-//                         Err(format!("cannot convert bytes{} to bytes{}", b.size, size))
-//                     }
-//                 },
-//                 _ => Err(format!("cannot convert {:?} to bytes{}", data, size))
-//             },
-//             BasicType::Address(payable) => match &mut data {
-//                 Data::Address(a) => {
-//                     if a.payable <= *payable {
-//                         a.payable = *payable;
-//                         Ok(data)
-//                     } else {
-//                         Err(format!("cannot convert address{} to address{}", a.payable, payable))
-//                     }
-//                 },
-//                 _ => Err(format!("cannot convert {:?} to address{}", data, payable))
-//             },
-//         }
-//     }
-// }
-
 impl Type {
-    // check if data of the type can be stored in memory
-    pub fn memory_friendly(&self) -> bool {
-        match self {
-            Type::B(_) => true,
-            Type::C(c) => match c {
-                CompoundType::String => true,
-                CompoundType::DynamicBytes => true,
-                CompoundType::Struct { .. } => true,
-                CompoundType::Mapping { .. } => false,
-                CompoundType::Array { .. } => true,
+    pub fn implicit_conversion(from: &Ty, to: &Ty) -> bool {
+        match (&**from, &**to) {
+            (Type::B(BasicType::Int(sz1)), Type::B(BasicType::Int(sz2))) => sz1 <= sz2,
+            (Type::B(BasicType::Uint(sz1)), Type::B(BasicType::Uint(sz2))) => sz1 <= sz2,
+            (Type::B(BasicType::Bytes(sz1)), Type::B(BasicType::Bytes(sz2))) => sz1 <= sz2,
+            (Type::B(BasicType::Address(payable1)), Type::B(BasicType::Address(payable2))) => !payable2 || *payable1,
+            (Type::B(BasicType::Bool()), Type::B(BasicType::Bool())) => true,
+            (Type::C(CompoundType::String), _) => unimplemented!(),
+            (Type::C(CompoundType::DynamicBytes), _) => unimplemented!(),
+            (Type::C(CompoundType::Struct { identifier: id1, .. }),
+                Type::C(CompoundType::Struct { identifier: id2, .. })) => id1 == id2,
+            (Type::C(CompoundType::Mapping { .. }), _) => false,
+            (Type::C(CompoundType::Array { len: len1, value: value1 }),
+                Type::C(CompoundType::Array { len: len2, value: value2 })) => {
+                let x = match (len1, len2) {
+                    (Some(len1), _) => *len1 <= len2.unwrap_or(*len1),
+                    (None, Some(_)) => false,
+                    (None, None) => true,
+                };
+                x && Type::implicit_conversion(value1, value2)
             },
-            Type::Literal => false,
+            (Type::NumLiteral(num), Type::B(BasicType::Int(sz))) => num.is_integer() && bits_need(&num.numerator, true) <= *sz,
+            (Type::NumLiteral(num), Type::B(BasicType::Uint(sz))) => num.is_non_negative_integer() && bits_need(&num.numerator, false) <= *sz,
+            _ => false
         }
+    }
+
+    pub fn sanity_check(&self) {
+        match self {
+            Type::B(BasicType::Int(sz)) => {
+                assert!(*sz <= 256 && *sz > 0 && *sz & 7 == 0);
+            },
+            Type::B(BasicType::Uint(sz)) => {
+                assert!(*sz <= 256 && *sz > 0 && *sz & 7 == 0);
+            },
+            Type::B(BasicType::Bytes(sz)) => {
+                assert!(*sz <= 32 && *sz > 0);
+            },
+            Type::B(BasicType::Address(_)) => {},
+            Type::B(BasicType::Bool()) => {},
+            Type::C(CompoundType::String) => unimplemented!(),
+            Type::C(CompoundType::DynamicBytes) => unimplemented!(),
+            Type::C(CompoundType::Struct { fields, .. }) => {
+                for (_, ty) in fields {
+                    if matches!(**ty, Type::NumLiteral(_)) {
+                        panic!("Struct field cannot be a number literal");
+                    }
+                    ty.sanity_check();
+                }
+            },
+            Type::C(CompoundType::Mapping { key, value }) => {
+                match &**key {
+                    Type::B(_) => {},
+                    _ => panic!("Mapping key must be a basic type"),
+                }
+                if matches!(**value, Type::NumLiteral(_)) {
+                    panic!("Mapping value cannot be a number literal");
+                }
+                key.sanity_check();
+                value.sanity_check();
+            },
+            Type::C(CompoundType::Array { value, .. }) => {
+                if matches!(**value, Type::NumLiteral(_)) {
+                    panic!("Array value cannot be a number literal");
+                }
+                value.sanity_check();
+            },
+            Type::NumLiteral(_) => {},
+        }
+    }
+
+    pub fn deduct_common_types(tys: Vec<Ty>) -> Result<Ty, String> {
+        if tys.is_empty() {
+            return Err("Empty type list".to_string());
+        }
+
+        // case 1: if exists compound type, then all types must be the same
+        let compound = tys.iter().any(|ty| matches!(&**ty, Type::C(_)));
+        if compound {
+            for ty in &tys {
+                if !matches!(&**ty, Type::C(_)) {
+                    return Err("Cannot deduct common types: Compound type must be the same".to_string());
+                }
+            }
+
+            return Ok(tys[0].clone());
+        } else {
+            // case 2: if all are basic types, then the result is the largest one
+            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bool())))) {
+                return Ok(Rc::new(Type::B(BasicType::Bool())));
+            }
+
+            for i in (8..=256).step_by(8) {
+                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Uint(i))))) {
+                    return Ok(Rc::new(Type::B(BasicType::Uint(i))));
+                }
+
+                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Int(i))))) {
+                    return Ok(Rc::new(Type::B(BasicType::Int(i))));
+                }
+            }
+
+            for i in 1..=32 {
+                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bytes(i))))) {
+                    return Ok(Rc::new(Type::B(BasicType::Bytes(i))));
+                }
+            }
+
+            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(false))))) {
+                return Ok(Rc::new(Type::B(BasicType::Address(true))));
+            }
+
+            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(true))))) {
+                return Ok(Rc::new(Type::B(BasicType::Address(true))));
+            }
+        }
+
+        Err("Cannot deduct common types".to_string())
     }
 }
 
-// impl BasicType {
-//     pub fn default_data(&self) -> Data {
-//         match self {
-//             BasicType::Bool() => Data::Basic(BasicData::Bool(Bool { value: false })),
-//             BasicType::Int(size) => Data::Basic(BasicData::Int(Int::default_value(Some((size / 8) as u8)))),
-//             BasicType::Uint(size) => Data::Basic(BasicData::Uint(Uint::default_value(Some((size / 8) as u8)))),
-//             BasicType::Bytes(size) => Data::Basic(BasicData::Bytes(Bytes::default_value(*size))),
-//             BasicType::Address(true) => Data::Basic(BasicData::Address(Address{ payable: true, value: [0; 20] })),
-//             BasicType::Address(false) => Data::Basic(BasicData::Address(Address{ payable: false, value: [0; 20] })),
-//             BasicType::String() => Data::Basic(BasicData::StringQ(StringQ { value: String::new() })),
-//         }
-//     }
-// }
+pub fn bits_need(num: &BigInt, signed: bool) -> u16 {
+    // TODO: num might be too big
+    //       or not consistent with the signed flag.
+    let mut bits = num.bits();
+    if num < &BigInt::from(0) && signed {
+        bits = (-num.clone() - BigInt::from(1)).bits() + 1;
+    }
 
-// pub fn implicit_conversion(ty: &Rc<Type>, data: &Data) -> Result<Data, String> {
-//     match (&**ty, data) {
-//         (Type::Basic(BasicType::Int(sz)), Data::NumberLiteral(num)) => {
-//             if num.is_integer() {
-//                 let num = num.denominator.clone();
-//                 Int::new_from_literal(num, Some((sz / 8) as u8))
-//                     .map(|int| Data::Basic(BasicData::Int(int)))
-//             } else {
-//                 Err(format!("cannot convert a non-integer number {} to int{}", num, sz))
-//             }
-//         },
-
-
-//         (Type::Basic(BasicType::Int(sz)), Data::Basic(BasicData::Int(i))) => {
-//             if *sz >= (i.size as u16) * 8 {
-//                 Int::new_from_literal(i.value.clone(), Some((sz / 8) as u8))
-//                     .map(|int| Data::Basic(BasicData::Int(int)))
-//             } else {
-//                 Err(format!("cannot convert int{} to int{}", i.size * 8, sz))
-//             }
-//         },
-
-//         (Type::Basic(BasicType::Uint(sz)), Data::NumberLiteral(num)) => {
-//             if num.is_integer() {
-//                 let num = num.denominator.clone();
-//                 Uint::new_from_literal(num, Some((sz / 8) as u8))
-//                     .map(|uint| Data::Basic(BasicData::Uint(uint)))
-//             } else {
-//                 Err(format!("cannot convert a non-integer number {} to uint{}", num, sz))
-//             }
-//         },
-
-//         (Type::Basic(BasicType::Uint(sz)), Data::Basic(BasicData::Uint(i))) => {
-//             if *sz >= (i.size as u16) * 8 {
-//                 Uint::new_from_literal(i.value.clone(), Some((sz / 8) as u8))
-//                     .map(|uint| Data::Basic(BasicData::Uint(uint)))
-//             } else {
-//                 Err(format!("cannot convert uint{} to uint{}", i.size * 8, sz))
-//             }
-//         },
-//         _ => Err(format!("cannot convert {:?} to {:?}", data, ty))
-//     }
-// }
-
-// pub fn get_default_data(ty: &Rc<Type>) -> Data {
-//     match &**ty {
-//         Type::Basic(basic) => basic.default_data(),
-//         Type::Struct { identifier: _, fields } => {
-//             let fields = fields.iter().map(|(_, ty)| get_default_data(ty)).collect();
-//             Data::Struct(Struct { ty: ty.clone(), fields })
-//         },
-//         Type::Mapping { key: _, value: _ } => Data::Mapping(Mapping { ty: ty.clone(), map: Default::default() }),
-//         Type::Array { len: _, value: _ } => Data::Array(Array { ty: ty.clone(), values: Default::default() }),
-//     }
-// }
+    ((bits + 7) & (!7)) as u16
+}

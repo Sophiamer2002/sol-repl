@@ -12,12 +12,10 @@ fn main() {
             Ok(line) => {
                 let result = dispatcher.dispatch(&line);
                 match result {
-                    DispatchResult::Success(message) => {
-                        if let Some(message) = message {
-                            println!("{}", message);
-                        }
+                    Ok(message) => {
+                        println!("{}", message);
                     }
-                    DispatchResult::Failure(message) => {
+                    Err(message) => {
                         println!("Failure: {}", message);
                     }
                 }

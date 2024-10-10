@@ -1,14 +1,11 @@
 pub mod dispatcher;
 
-pub mod exec_env;
-
 pub mod kernel;
 
 pub mod utils;
 
 pub mod prelude {
-    pub use crate::dispatcher::{DispatchResult, Dispatcher};
-    pub use crate::exec_env::ExecEnv;
+    pub use crate::dispatcher::Dispatcher;
 }
 
 #[cfg(test)]
