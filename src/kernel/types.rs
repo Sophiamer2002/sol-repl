@@ -120,7 +120,7 @@ impl Type {
         let compound = tys.iter().any(|ty| matches!(&**ty, Type::C(_)));
         if compound {
             for ty in &tys {
-                if !matches!(&**ty, Type::C(_)) {
+                if tys[0] != *ty {
                     return Err("Cannot deduct common types: Compound type must be the same".to_string());
                 }
             }

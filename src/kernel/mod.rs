@@ -2,7 +2,10 @@ use std::{collections::{HashMap, HashSet}, rc::Rc};
 
 use prelude::*;
 
-use solang_parser::pt::{self, Expression, Identifier, StructDefinition, VariableDeclaration};
+use solang_parser::{parse, pt::{
+    self, Expression, Identifier, SourceUnit, SourceUnitPart,
+    Statement, StructDefinition, VariableDeclaration
+}};
 
 #[derive(Clone, Debug)]
 pub enum ParseUnit {
@@ -12,8 +15,66 @@ pub enum ParseUnit {
     StructDefinition(StructDefinition),
 }
 
+pub fn parse_input(input: String) -> Result<ParseUnit, String> {
+    match parse(&input, 0) {
+        Ok((SourceUnit(parts), _comments)) => {
+            let part = parts.into_iter().next();
+            if part.is_none() {
+                return Ok(ParseUnit::Nothing());
+            }
+            
+            let part = part.unwrap();
+            match part {
+                SourceUnitPart::StructDefinition(def) => {
+                    return Ok(ParseUnit::StructDefinition(*def));
+                },
+                _ => {}
+            }
+        },
+        Err(_) => {},
+    }
+
+    let wrapped_input = format!(
+        "function __sol_repl_94023() public {{ {} }}",
+        input
+    );
+
+    match parse(&wrapped_input, 0) {
+        Ok((SourceUnit(parts), _comments)) => {
+            if parts.len() == 1 {
+                let part = parts.into_iter().next().unwrap();
+                let statements = match part {
+                    SourceUnitPart::FunctionDefinition(def) => {
+                        if let Some(Statement::Block{
+                            loc:_, unchecked: b, statements: c
+                        }) = def.body {
+                            assert!(!b);
+                            Some(c)
+                        } else { None }
+                    },
+                    _ => None
+                };
+                if let Some(statements) = statements {
+                    if statements.len() == 1 {
+                        let statement: Statement  = statements.into_iter().next().unwrap();
+                        if let Statement::Expression(_, expr) = statement {
+                            return Ok(ParseUnit::Expression(expr));
+                        } else if let Statement::VariableDefinition(_, decl, expr) = statement {
+                            return Ok(ParseUnit::VariableDefinition(decl, expr));
+                        }
+                    }
+                }
+            }
+        },
+        Err(_) => {},
+    }
+
+    return Err("Cannot parse input".to_string());
+}
+
+
 #[derive(Clone, Debug)]
-pub enum Entry {
+enum Entry {
     Type(Rc<Type>),
     Data(DataRef)
 }
@@ -112,8 +173,9 @@ impl Kernel {
             },
             ParseUnit::StructDefinition(def) => {
                 let StructDefinition { name, fields, .. } = def;
+                let name = name.unwrap().name;
                 let ty = Type::C(CompoundType::Struct {
-                    identifier: name.unwrap().name.clone(),
+                    identifier: name.clone(),
                     fields: fields.into_iter().map(|f| {
                         let VariableDeclaration { name, ty, storage, .. } = f;
                         if let Some(_) = storage {
@@ -122,7 +184,8 @@ impl Kernel {
                         self.get_type(ty).map(|ty| (name.unwrap().name, ty))
                     }).collect::<Result<Vec<_>, _>>()?,
                 });
-                self.get_or_insert_type(ty);
+                let ty = self.get_or_insert_type(ty);
+                self.symbol_table.insert(name, Entry::Type(ty));
                 Ok(None)
             }
         }
@@ -268,6 +331,7 @@ impl Kernel {
                 };
 
                 lhs.assign_from(&rhs)?;
+                // TODO: may return value, check the detail
                 Ok(EvalResult::Void())
             },
 
@@ -422,8 +486,8 @@ impl Kernel {
         }
     }
 
-    fn lookup(&mut self, name: &str) -> Option<&mut Entry> {
-        self.symbol_table.get_mut(name)
+    fn lookup(&self, name: &str) -> Option<&Entry> {
+        self.symbol_table.get(name)
     }
 
     fn get_or_insert_type(&mut self, ty: Type) -> Ty {
@@ -477,6 +541,21 @@ mod tests {
         );
 
         dbg!(table.lookup("a"));
+    }
+
+    const INPUT1: &str = "struct Funder { address addr; uint amount; } // abcde";
+    const INPUT2: &str = "uint[a][] inspector = bytes(abi.encode(a+b));";
+
+    #[test]
+    fn test_parse_input() {
+        let input = INPUT1;
+        let parsed = parse_input(input.to_string()).unwrap();
+        dbg!(parsed);
+
+        let input = INPUT2;
+        let parsed = parse_input(input.to_string()).unwrap();
+        assert!(matches!(parsed, ParseUnit::VariableDefinition(_, _)));
+        dbg!(parsed);
     }
 }
 

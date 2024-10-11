@@ -31,6 +31,7 @@ pub enum Data {
     Literal,
 }
 
+/// see https://docs.soliditylang.org/en/latest/grammar.html#a4.SolidityParser.userDefinableOperator
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operator {
     Add,
@@ -121,6 +122,7 @@ impl Data {
 }
 
 impl DataRef {
+    // TODO: the main part of default should be moved to Data struct
     pub fn default(ty: Ty, indirection: Indirection) -> Self {
         assert!(indirection != Indirection::Ref);
         let data = match &*ty {
