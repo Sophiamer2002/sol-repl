@@ -1,6 +1,9 @@
 pub mod fraction {
     use num_traits::Num;
-    use std::{ops::{Add, Div, Mul, Neg, Sub}, str::FromStr};
+    use std::{
+        ops::{Add, Div, Mul, Neg, Sub},
+        str::FromStr,
+    };
 
     use num_bigint::BigInt;
 
@@ -32,12 +35,16 @@ pub mod fraction {
                     denominator: -denominator,
                 }
             } else {
-                Fraction { numerator, denominator }
+                Fraction {
+                    numerator,
+                    denominator,
+                }
             }
         }
 
         pub fn new_from_number_literal(num: String) -> Result<Self, String> {
-            let numerator = BigInt::from_str(&num).map_err(|_| format!("invalid number literal: {}", num))?;
+            let numerator =
+                BigInt::from_str(&num).map_err(|_| format!("invalid number literal: {}", num))?;
             Ok(Fraction {
                 numerator,
                 denominator: BigInt::from(1),
@@ -62,10 +69,8 @@ pub mod fraction {
         }
 
         pub fn to_u32(&self) -> Option<u32> {
-            if self.is_non_negative_integer() {
-                if self.numerator.bits() <= u32::BITS as u64 {
-                    return self.numerator.to_u32_digits().1.into_iter().next()
-                }
+            if self.is_non_negative_integer() && self.numerator.bits() <= u32::BITS as u64 {
+                return self.numerator.to_u32_digits().1.into_iter().next();
             }
             None
         }
@@ -75,14 +80,18 @@ pub mod fraction {
         type Output = Fraction;
 
         fn add(self, other: Self) -> Fraction {
-            let numerator = &self.numerator * &other.denominator + &other.numerator * &self.denominator;
+            let numerator =
+                &self.numerator * &other.denominator + &other.numerator * &self.denominator;
             let denominator = &self.denominator * &other.denominator;
 
             let gcd = gcd(&numerator, &denominator);
             let numerator = numerator / &gcd;
             let denominator = denominator / &gcd;
 
-            Fraction { numerator, denominator }
+            Fraction {
+                numerator,
+                denominator,
+            }
         }
     }
 
@@ -101,14 +110,18 @@ pub mod fraction {
         type Output = Fraction;
 
         fn sub(self, other: Self) -> Fraction {
-            let numerator = &self.numerator * &other.denominator - &other.numerator * &self.denominator;
+            let numerator =
+                &self.numerator * &other.denominator - &other.numerator * &self.denominator;
             let denominator = &self.denominator * &other.denominator;
 
             let gcd = gcd(&numerator, &denominator);
             let numerator = numerator / &gcd;
             let denominator = denominator / &gcd;
 
-            Fraction { numerator, denominator }
+            Fraction {
+                numerator,
+                denominator,
+            }
         }
     }
 
@@ -123,10 +136,13 @@ pub mod fraction {
             let numerator = numerator / &gcd;
             let denominator = denominator / &gcd;
 
-            Fraction { numerator, denominator }
+            Fraction {
+                numerator,
+                denominator,
+            }
         }
     }
-    
+
     impl Div for &Fraction {
         type Output = Fraction;
 
@@ -141,7 +157,10 @@ pub mod fraction {
             let numerator = numerator / &gcd;
             let denominator = denominator / &gcd;
 
-            Fraction { numerator, denominator }
+            Fraction {
+                numerator,
+                denominator,
+            }
         }
     }
 
@@ -156,8 +175,16 @@ pub mod fraction {
     }
 
     fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
-        let mut a = if a < &BigInt::ZERO { -a.clone() } else { a.clone() };
-        let mut b = if b < &BigInt::ZERO { -b.clone() } else { b.clone() };
+        let mut a = if a < &BigInt::ZERO {
+            -a.clone()
+        } else {
+            a.clone()
+        };
+        let mut b = if b < &BigInt::ZERO {
+            -b.clone()
+        } else {
+            b.clone()
+        };
 
         if a < b {
             std::mem::swap(&mut a, &mut b);
@@ -181,7 +208,7 @@ pub mod fraction {
             let a = Fraction::new(BigInt::from(1), BigInt::from(2));
             let b = Fraction::new(BigInt::from(1), BigInt::from(3));
             let c = Fraction::new(BigInt::from(1), BigInt::from(6));
-            
+
             assert_eq!(&(&a + &b) + &c, Fraction::one());
             println!("{}", &(&a + &b) + &c);
             println!("{}", &(&a * &b) + &c);

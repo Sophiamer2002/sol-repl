@@ -27,15 +27,15 @@ pub enum CompoundType {
     DynamicBytes,
     Struct {
         identifier: String,
-        fields: Vec<(String, Ty)>
+        fields: Vec<(String, Ty)>,
     },
     Mapping {
-        key: Rc<Type>,  // shall be a basic type
-        value: Rc<Type>
+        key: Rc<Type>, // shall be a basic type
+        value: Rc<Type>,
     },
     Array {
         len: Option<u32>,
-        value: Rc<Type>
+        value: Rc<Type>,
     },
 }
 
@@ -45,25 +45,45 @@ impl Type {
             (Type::B(BasicType::Int(sz1)), Type::B(BasicType::Int(sz2))) => sz1 <= sz2,
             (Type::B(BasicType::Uint(sz1)), Type::B(BasicType::Uint(sz2))) => sz1 <= sz2,
             (Type::B(BasicType::Bytes(sz1)), Type::B(BasicType::Bytes(sz2))) => sz1 <= sz2,
-            (Type::B(BasicType::Address(payable1)), Type::B(BasicType::Address(payable2))) => !payable2 || *payable1,
+            (Type::B(BasicType::Address(payable1)), Type::B(BasicType::Address(payable2))) => {
+                !payable2 || *payable1
+            }
             (Type::B(BasicType::Bool()), Type::B(BasicType::Bool())) => true,
             (Type::C(CompoundType::String), _) => unimplemented!(),
             (Type::C(CompoundType::DynamicBytes), _) => unimplemented!(),
-            (Type::C(CompoundType::Struct { identifier: id1, .. }),
-                Type::C(CompoundType::Struct { identifier: id2, .. })) => id1 == id2,
+            (
+                Type::C(CompoundType::Struct {
+                    identifier: id1, ..
+                }),
+                Type::C(CompoundType::Struct {
+                    identifier: id2, ..
+                }),
+            ) => id1 == id2,
             (Type::C(CompoundType::Mapping { .. }), _) => false,
-            (Type::C(CompoundType::Array { len: len1, value: value1 }),
-                Type::C(CompoundType::Array { len: len2, value: value2 })) => {
+            (
+                Type::C(CompoundType::Array {
+                    len: len1,
+                    value: value1,
+                }),
+                Type::C(CompoundType::Array {
+                    len: len2,
+                    value: value2,
+                }),
+            ) => {
                 let x = match (len1, len2) {
                     (Some(len1), _) => *len1 <= len2.unwrap_or(*len1),
                     (None, Some(_)) => false,
                     (None, None) => true,
                 };
                 x && Type::implicit_conversion(value1, value2)
-            },
-            (Type::NumLiteral(num), Type::B(BasicType::Int(sz))) => num.is_integer() && bits_need(&num.numerator, true) <= *sz,
-            (Type::NumLiteral(num), Type::B(BasicType::Uint(sz))) => num.is_non_negative_integer() && bits_need(&num.numerator, false) <= *sz,
-            _ => false
+            }
+            (Type::NumLiteral(num), Type::B(BasicType::Int(sz))) => {
+                num.is_integer() && bits_need(&num.numerator, true) <= *sz
+            }
+            (Type::NumLiteral(num), Type::B(BasicType::Uint(sz))) => {
+                num.is_non_negative_integer() && bits_need(&num.numerator, false) <= *sz
+            }
+            _ => false,
         }
     }
 
@@ -71,15 +91,15 @@ impl Type {
         match self {
             Type::B(BasicType::Int(sz)) => {
                 assert!(*sz <= 256 && *sz > 0 && *sz & 7 == 0);
-            },
+            }
             Type::B(BasicType::Uint(sz)) => {
                 assert!(*sz <= 256 && *sz > 0 && *sz & 7 == 0);
-            },
+            }
             Type::B(BasicType::Bytes(sz)) => {
                 assert!(*sz <= 32 && *sz > 0);
-            },
-            Type::B(BasicType::Address(_)) => {},
-            Type::B(BasicType::Bool()) => {},
+            }
+            Type::B(BasicType::Address(_)) => {}
+            Type::B(BasicType::Bool()) => {}
             Type::C(CompoundType::String) => unimplemented!(),
             Type::C(CompoundType::DynamicBytes) => unimplemented!(),
             Type::C(CompoundType::Struct { fields, .. }) => {
@@ -89,10 +109,10 @@ impl Type {
                     }
                     ty.sanity_check();
                 }
-            },
+            }
             Type::C(CompoundType::Mapping { key, value }) => {
                 match &**key {
-                    Type::B(_) => {},
+                    Type::B(_) => {}
                     _ => panic!("Mapping key must be a basic type"),
                 }
                 if matches!(**value, Type::NumLiteral(_)) {
@@ -100,14 +120,14 @@ impl Type {
                 }
                 key.sanity_check();
                 value.sanity_check();
-            },
+            }
             Type::C(CompoundType::Array { value, .. }) => {
                 if matches!(**value, Type::NumLiteral(_)) {
                     panic!("Array value cannot be a number literal");
                 }
                 value.sanity_check();
-            },
-            Type::NumLiteral(_) => {},
+            }
+            Type::NumLiteral(_) => {}
         }
     }
 
@@ -121,38 +141,58 @@ impl Type {
         if compound {
             for ty in &tys {
                 if tys[0] != *ty {
-                    return Err("Cannot deduct common types: Compound type must be the same".to_string());
+                    return Err(
+                        "Cannot deduct common types: Compound type must be the same".to_string()
+                    );
                 }
             }
 
             return Ok(tys[0].clone());
         } else {
             // case 2: if all are basic types, then the result is the largest one
-            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bool())))) {
+            if tys
+                .iter()
+                .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bool()))))
+            {
                 return Ok(Rc::new(Type::B(BasicType::Bool())));
             }
 
             for i in (8..=256).step_by(8) {
-                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Uint(i))))) {
+                if tys
+                    .iter()
+                    .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Uint(i)))))
+                {
                     return Ok(Rc::new(Type::B(BasicType::Uint(i))));
                 }
 
-                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Int(i))))) {
+                if tys
+                    .iter()
+                    .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Int(i)))))
+                {
                     return Ok(Rc::new(Type::B(BasicType::Int(i))));
                 }
             }
 
             for i in 1..=32 {
-                if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bytes(i))))) {
+                if tys
+                    .iter()
+                    .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Bytes(i)))))
+                {
                     return Ok(Rc::new(Type::B(BasicType::Bytes(i))));
                 }
             }
 
-            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(false))))) {
+            if tys
+                .iter()
+                .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(false)))))
+            {
                 return Ok(Rc::new(Type::B(BasicType::Address(true))));
             }
 
-            if tys.iter().all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(true))))) {
+            if tys
+                .iter()
+                .all(|t| Type::implicit_conversion(t, &Rc::new(Type::B(BasicType::Address(true)))))
+            {
                 return Ok(Rc::new(Type::B(BasicType::Address(true))));
             }
         }
