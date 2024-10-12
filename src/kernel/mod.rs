@@ -1,11 +1,17 @@
-use std::{collections::{HashMap, HashSet}, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use prelude::*;
 
-use solang_parser::{parse, pt::{
-    self, Expression, Identifier, SourceUnit, SourceUnitPart,
-    Statement, StructDefinition, VariableDeclaration
-}};
+use solang_parser::{
+    parse,
+    pt::{
+        self, Expression, Identifier, SourceUnit, SourceUnitPart, Statement, StructDefinition,
+        VariableDeclaration,
+    },
+};
 
 #[derive(Clone, Debug)]
 pub enum ParseUnit {
@@ -16,67 +22,59 @@ pub enum ParseUnit {
 }
 
 pub fn parse_input(input: String) -> Result<ParseUnit, String> {
-    match parse(&input, 0) {
-        Ok((SourceUnit(parts), _comments)) => {
-            let part = parts.into_iter().next();
-            if part.is_none() {
-                return Ok(ParseUnit::Nothing());
-            }
-            
-            let part = part.unwrap();
-            match part {
-                SourceUnitPart::StructDefinition(def) => {
-                    return Ok(ParseUnit::StructDefinition(*def));
-                },
-                _ => {}
-            }
-        },
-        Err(_) => {},
+    if let Ok((SourceUnit(parts), _comments)) = parse(&input, 0) {
+        let part = parts.into_iter().next();
+        if part.is_none() {
+            return Ok(ParseUnit::Nothing());
+        }
+
+        let part = part.unwrap();
+        if let SourceUnitPart::StructDefinition(def) = part {
+            return Ok(ParseUnit::StructDefinition(*def));
+        }
     }
 
-    let wrapped_input = format!(
-        "function __sol_repl_94023() public {{ {} }}",
-        input
-    );
+    let wrapped_input = format!("function __sol_repl_94023() public {{ {} }}", input);
 
-    match parse(&wrapped_input, 0) {
-        Ok((SourceUnit(parts), _comments)) => {
-            if parts.len() == 1 {
-                let part = parts.into_iter().next().unwrap();
-                let statements = match part {
-                    SourceUnitPart::FunctionDefinition(def) => {
-                        if let Some(Statement::Block{
-                            loc:_, unchecked: b, statements: c
-                        }) = def.body {
-                            assert!(!b);
-                            Some(c)
-                        } else { None }
-                    },
-                    _ => None
-                };
-                if let Some(statements) = statements {
-                    if statements.len() == 1 {
-                        let statement: Statement  = statements.into_iter().next().unwrap();
-                        if let Statement::Expression(_, expr) = statement {
-                            return Ok(ParseUnit::Expression(expr));
-                        } else if let Statement::VariableDefinition(_, decl, expr) = statement {
-                            return Ok(ParseUnit::VariableDefinition(decl, expr));
-                        }
+    if let Ok((SourceUnit(parts), _comments)) = parse(&wrapped_input, 0) {
+        if parts.len() == 1 {
+            let part = parts.into_iter().next().unwrap();
+            let statements = match part {
+                SourceUnitPart::FunctionDefinition(def) => {
+                    if let Some(Statement::Block {
+                        loc: _,
+                        unchecked: b,
+                        statements: c,
+                    }) = def.body
+                    {
+                        assert!(!b);
+                        Some(c)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(statements) = statements {
+                if statements.len() == 1 {
+                    let statement: Statement = statements.into_iter().next().unwrap();
+                    if let Statement::Expression(_, expr) = statement {
+                        return Ok(ParseUnit::Expression(expr));
+                    } else if let Statement::VariableDefinition(_, decl, expr) = statement {
+                        return Ok(ParseUnit::VariableDefinition(decl, expr));
                     }
                 }
             }
-        },
-        Err(_) => {},
+        }
     }
 
-    return Err("Cannot parse input".to_string());
+    Err("Cannot parse input".to_string())
 }
-
 
 #[derive(Clone, Debug)]
 enum Entry {
     Type(Rc<Type>),
-    Data(DataRef)
+    Data(DataRef),
 }
 
 #[derive(Clone, Debug)]
@@ -91,11 +89,17 @@ pub enum EvalResult {
     Data(DataRef),
 }
 
+impl Default for Kernel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Kernel {
     pub fn new() -> Self {
         let mut type_table = HashSet::new();
         type_table.insert(Rc::new(Type::B(BasicType::Bool())));
-        
+
         for i in (8..=256).step_by(8) {
             type_table.insert(Rc::new(Type::B(BasicType::Int(i))));
             type_table.insert(Rc::new(Type::B(BasicType::Uint(i))));
@@ -119,7 +123,9 @@ impl Kernel {
         match input {
             ParseUnit::Nothing() => Ok(None),
             ParseUnit::VariableDefinition(decl, init) => {
-                let VariableDeclaration { name, ty, storage, .. } = decl;
+                let VariableDeclaration {
+                    name, ty, storage, ..
+                } = decl;
                 let name = name.unwrap().name;
                 if self.lookup(&name).is_some() {
                     return Err(format!("Identifier {} already defined", name));
@@ -133,24 +139,23 @@ impl Kernel {
                                     let data_ref = data_ref.assign_to(ty, Indirection::Ref)?;
                                     self.symbol_table.insert(name, Entry::Data(data_ref));
                                     Ok(None)
-                                },
-                                _ => {
-                                    Err("Invalid initializer".to_string())
                                 }
+                                _ => Err("Invalid initializer".to_string()),
                             }
                         } else {
                             Err("Expected initializer for reference type".to_string())
                         }
-                    },
-                    (Some(_), Type::B(_)) => {
-                        Err("Data location can be only specified for array, struct or mapping types".to_string())
-                    },
+                    }
+                    (Some(_), Type::B(_)) => Err(
+                        "Data location can be only specified for array, struct or mapping types"
+                            .to_string(),
+                    ),
                     (None, _) => {
                         let data = if let Some(init) = init {
                             match self.eval(init)? {
                                 EvalResult::Data(data) => {
                                     data.assign_to(ty, Indirection::LValue)?
-                                },
+                                }
                                 _ => return Err("Invalid initializer".to_string()),
                             }
                         } else {
@@ -159,30 +164,31 @@ impl Kernel {
 
                         self.symbol_table.insert(name, Entry::Data(data));
                         Ok(None)
-                    },
+                    }
                     (_, Type::NumLiteral(_)) => panic!("Literal type cannot be in the type table"),
                 }
-            },
-            ParseUnit::Expression(expr) => {
-                match self.eval(expr)? {
-                    EvalResult::Void() => Ok(None),
-                    EvalResult::Data(data) => {
-                        Ok(Some(format!("{:?}", data)))
-                    },
-                }
+            }
+            ParseUnit::Expression(expr) => match self.eval(expr)? {
+                EvalResult::Void() => Ok(None),
+                EvalResult::Data(data) => Ok(Some(format!("{:?}", data))),
             },
             ParseUnit::StructDefinition(def) => {
                 let StructDefinition { name, fields, .. } = def;
                 let name = name.unwrap().name;
                 let ty = Type::C(CompoundType::Struct {
                     identifier: name.clone(),
-                    fields: fields.into_iter().map(|f| {
-                        let VariableDeclaration { name, ty, storage, .. } = f;
-                        if let Some(_) = storage {
-                            return Err("Expected identifier".to_string());
-                        }
-                        self.get_type(ty).map(|ty| (name.unwrap().name, ty))
-                    }).collect::<Result<Vec<_>, _>>()?,
+                    fields: fields
+                        .into_iter()
+                        .map(|f| {
+                            let VariableDeclaration {
+                                name, ty, storage, ..
+                            } = f;
+                            if storage.is_some() {
+                                return Err("Expected identifier".to_string());
+                            }
+                            self.get_type(ty).map(|ty| (name.unwrap().name, ty))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                 });
                 let ty = self.get_or_insert_type(ty);
                 self.symbol_table.insert(name, Entry::Type(ty));
@@ -193,9 +199,9 @@ impl Kernel {
 
     fn eval(&mut self, expr: Expression) -> Result<EvalResult, String> {
         match expr {
-            Expression::Type(_, ty) => {
+            Expression::Type(_, _ty) => {
                 unimplemented!()
-            },
+            }
             Expression::Variable(Identifier { name, .. }) => {
                 if let Some(Entry::Data(data_ref)) = self.lookup(&name) {
                     // TODO: data may also be a reference to type
@@ -205,13 +211,10 @@ impl Kernel {
                 } else {
                     Err(format!("Identifier {} not found", name))
                 }
-            },
-            Expression::Parenthesis(_, expr) => {
-                self.eval(*expr)
-            },
-            
-            // Literals
+            }
+            Expression::Parenthesis(_, expr) => self.eval(*expr),
 
+            // Literals
             Expression::NumberLiteral(_, num, _what_is_this, None) => {
                 // TODO: not knowing how the identifier is used
                 if !_what_is_this.is_empty() {
@@ -219,87 +222,90 @@ impl Kernel {
                 }
                 let data = DataRef::number_literal_to_data(num)?;
                 Ok(EvalResult::Data(data))
-            },
+            }
 
             Expression::HexNumberLiteral(_, num, None) => {
                 let data = DataRef::number_literal_to_data(num)?;
                 Ok(EvalResult::Data(data))
-            },
+            }
 
             Expression::ArrayLiteral(_, exprs) => {
                 if exprs.is_empty() {
                     return Err("Unable to deduce common type for array elements".to_string());
                 }
-                let results = exprs.into_iter().map(|expr| self.eval(expr)).collect::<Result<Vec<_>, _>>()?;
+                let results = exprs
+                    .into_iter()
+                    .map(|expr| self.eval(expr))
+                    .collect::<Result<Vec<_>, _>>()?;
                 if results.iter().any(|r| !matches!(r, EvalResult::Data(_))) {
                     return Err("Invalid array element".to_string());
                 }
 
-                let data: Vec<_> = results.into_iter().map(|r| {
-                    match r {
+                let data: Vec<_> = results
+                    .into_iter()
+                    .map(|r| match r {
                         EvalResult::Data(data_ref) => data_ref,
                         _ => unreachable!(),
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 let ty = DataRef::deduct_common_types(&data)?;
 
-                let ty = self.get_or_insert_type(Type::C(
-                    CompoundType::Array { len: Some(data.len() as u32), value: ty }));
-                
+                let ty = self.get_or_insert_type(Type::C(CompoundType::Array {
+                    len: Some(data.len() as u32),
+                    value: ty,
+                }));
+
                 Ok(EvalResult::Data(DataRef::new_array(ty, data)))
-            },
+            }
 
             // Operators
             Expression::FunctionCall(_, func, args) => {
                 match *func {
                     Expression::Variable(Identifier { name, .. }) => {
-                        if let Some(Entry::Type(ty)) = self.lookup(&name) {
+                        if let Some(Entry::Type(_ty)) = self.lookup(&name) {
                             // explicit type conversion
                             unimplemented!()
                         }
 
                         Err("Function call not supported".to_string())
-                    },
+                    }
                     // TODO: type conversion
                     // TODO: abi encoding
                     Expression::MemberAccess(_, expr, Identifier { name, .. }) => {
                         // accessing a method
                         let data = self.eval(*expr)?;
-                        let args = args.into_iter().map(|arg| {
-                            match self.eval(arg) {
+                        let args = args
+                            .into_iter()
+                            .map(|arg| match self.eval(arg) {
                                 Ok(EvalResult::Data(data_ref)) => Ok(data_ref),
                                 _ => Err("Invalid argument".to_string()),
-                            }
-                        }).collect::<Result<Vec<_>, _>>()?;
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
                         match data {
-                            EvalResult::Data(data_ref) => {
-                                data_ref.call_method(name, args).map(|d| {
-                                    d.map(|d| EvalResult::Data(d)).unwrap_or(EvalResult::Void())
-                                })
-                            },
+                            EvalResult::Data(data_ref) => data_ref
+                                .call_method(name, args)
+                                .map(|d| d.map(EvalResult::Data).unwrap_or(EvalResult::Void())),
                             _ => Err("Invalid member access".to_string()),
                         }
-                    },
+                    }
                     _ => Err("Invalid function call or unimplemented".to_string()),
                 }
-            },
+            }
 
-            Expression::MemberAccess(_, expr, Identifier { name , ..}) => {
+            Expression::MemberAccess(_, expr, Identifier { name, .. }) => {
                 // currently, we donnot support accessing method
-                // if we are accessing a method, it is directly 
+                // if we are accessing a method, it is directly
                 // evaluated in Expression::FunctionCall
 
                 let result = self.eval(*expr)?;
                 match result {
                     EvalResult::Data(data_ref) => {
-                        data_ref.extract_member(name).map(|data_ref| {
-                            EvalResult::Data(data_ref)
-                        })
-                    },
+                        data_ref.extract_member(name).map(EvalResult::Data)
+                    }
                     _ => Err("Invalid member access".to_string()),
                 }
-            },
+            }
 
             Expression::ArraySubscript(_, expr, Some(idx)) => {
                 let idx = match self.eval(*idx)? {
@@ -310,14 +316,10 @@ impl Kernel {
                     EvalResult::Data(data_ref) => data_ref,
                     _ => return Err("Invalid array subscript".to_string()),
                 };
-                data.subscript(idx).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                data.subscript(idx).map(EvalResult::Data)
+            }
 
-            Expression::ArraySubscript(_, _, None) => {
-                Err("Invalid array subscript".to_string())
-            },
+            Expression::ArraySubscript(_, _, None) => Err("Invalid array subscript".to_string()),
 
             Expression::Assign(_, lhs, rhs) => {
                 let mut lhs = match self.eval(*lhs)? {
@@ -333,7 +335,7 @@ impl Kernel {
                 lhs.assign_from(&rhs)?;
                 // TODO: may return value, check the detail
                 Ok(EvalResult::Void())
-            },
+            }
 
             Expression::Add(_, lhs, rhs) => {
                 let lhs = match self.eval(*lhs)? {
@@ -346,10 +348,8 @@ impl Kernel {
                     _ => return Err("Invalid addition".to_string()),
                 };
 
-                lhs.op(Operator::Add, &rhs).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                lhs.op(Operator::Add, &rhs).map(EvalResult::Data)
+            }
 
             Expression::Subtract(_, lhs, rhs) => {
                 let lhs = match self.eval(*lhs)? {
@@ -362,10 +362,8 @@ impl Kernel {
                     _ => return Err("Invalid subtraction".to_string()),
                 };
 
-                lhs.op(Operator::Sub, &rhs).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                lhs.op(Operator::Sub, &rhs).map(EvalResult::Data)
+            }
 
             Expression::Multiply(_, lhs, rhs) => {
                 let lhs = match self.eval(*lhs)? {
@@ -378,10 +376,8 @@ impl Kernel {
                     _ => return Err("Invalid multiplication".to_string()),
                 };
 
-                lhs.op(Operator::Mul, &rhs).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                lhs.op(Operator::Mul, &rhs).map(EvalResult::Data)
+            }
 
             Expression::Divide(_, lhs, rhs) => {
                 let lhs = match self.eval(*lhs)? {
@@ -394,10 +390,8 @@ impl Kernel {
                     _ => return Err("Invalid division".to_string()),
                 };
 
-                lhs.op(Operator::Div, &rhs).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                lhs.op(Operator::Div, &rhs).map(EvalResult::Data)
+            }
 
             Expression::Negate(_, expr) => {
                 let zero = DataRef::number_literal_to_data("0".to_string()).unwrap();
@@ -406,65 +400,67 @@ impl Kernel {
                     _ => return Err("Invalid negation".to_string()),
                 };
 
-                zero.op(Operator::Sub, &expr).map(|data_ref| {
-                    EvalResult::Data(data_ref)
-                })
-            },
+                zero.op(Operator::Sub, &expr).map(EvalResult::Data)
+            }
 
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
     // the result type must be in the type table
     fn get_type(&mut self, ty: Expression) -> Result<Rc<Type>, String> {
         match ty {
-            Expression::Type(_, ty) => {
-                match ty {
-                    pt::Type::Address => Ok(self.get_basic_type(BasicType::Address(false))),
-                    pt::Type::AddressPayable => Ok(self.get_basic_type(BasicType::Address(true))),
-                    pt::Type::Bool => Ok(self.get_basic_type(BasicType::Bool())),
-                    pt::Type::Int(sz) => Ok(self.get_basic_type(BasicType::Int(sz))),
-                    pt::Type::Uint(sz) => Ok(self.get_basic_type(BasicType::Uint(sz))),
-                    pt::Type::Bytes(sz) => Ok(self.get_basic_type(BasicType::Bytes(sz))),
-                    pt::Type::Mapping { key, value, .. } => {
-                        let key = self.get_type(*key)?;
-                        if matches!(&*key, Type::C(_)) {
-                            return Err("Invalid key type".to_string());
-                        }
-                        let value = self.get_type(*value)?;
-                        Ok(self.get_or_insert_type(Type::C(CompoundType::Mapping { key, value })))
-                    },
-                    _ => Err("Not supported type or not implemented".to_string()),
+            Expression::Type(_, ty) => match ty {
+                pt::Type::Address => Ok(self.get_basic_type(BasicType::Address(false))),
+                pt::Type::AddressPayable => Ok(self.get_basic_type(BasicType::Address(true))),
+                pt::Type::Bool => Ok(self.get_basic_type(BasicType::Bool())),
+                pt::Type::Int(sz) => Ok(self.get_basic_type(BasicType::Int(sz))),
+                pt::Type::Uint(sz) => Ok(self.get_basic_type(BasicType::Uint(sz))),
+                pt::Type::Bytes(sz) => Ok(self.get_basic_type(BasicType::Bytes(sz))),
+                pt::Type::Mapping { key, value, .. } => {
+                    let key = self.get_type(*key)?;
+                    if matches!(&*key, Type::C(_)) {
+                        return Err("Invalid key type".to_string());
+                    }
+                    let value = self.get_type(*value)?;
+                    Ok(self.get_or_insert_type(Type::C(CompoundType::Mapping { key, value })))
                 }
+                _ => Err("Not supported type or not implemented".to_string()),
             },
             Expression::ArraySubscript(_, expr, None) => {
                 let ty = self.get_type(*expr)?;
-                Ok(self.get_or_insert_type( Type::C(CompoundType::Array { len: None, value: ty }) ))
-            },
+                Ok(self.get_or_insert_type(Type::C(CompoundType::Array {
+                    len: None,
+                    value: ty,
+                })))
+            }
             Expression::ArraySubscript(_, expr, Some(sz)) => {
                 // idx should be a integer literal or constant value
                 // now we only support integer literal
                 let ty = self.get_type(*expr)?;
                 let sz = self.eval(*sz)?;
                 let sz = match sz {
-                    EvalResult::Data(data_ref) => {
-                        data_ref.extract_number_literal().ok_or("Invalid array size".to_string())?
-                    },
+                    EvalResult::Data(data_ref) => data_ref
+                        .extract_number_literal()
+                        .ok_or("Invalid array size".to_string())?,
                     _ => return Err("Invalid array size".to_string()),
                 };
                 if let Some(len) = sz.to_u32() {
                     // TODO: check if the type is in the type table for system safety
-                    // The current requirement of not equal to (!0) is to ensure 
+                    // The current requirement of not equal to (!0) is to ensure
                     // the comparison in data.rs is correct because we use (!0) as
                     // infinity in the array size
                     if len == 0 || len == (!0) {
                         return Err("Invalid array size".to_string());
                     }
-                    Ok(self.get_or_insert_type( Type::C(CompoundType::Array { len: Some(len), value: ty }) ))
+                    Ok(self.get_or_insert_type(Type::C(CompoundType::Array {
+                        len: Some(len),
+                        value: ty,
+                    })))
                 } else {
                     Err("Invalid array size".to_string())
                 }
-            },
+            }
             Expression::Variable(identifier) => {
                 let entry = self.lookup(&identifier.name);
                 if entry.is_none() {
@@ -481,7 +477,7 @@ impl Kernel {
                     }
                     _ => Err("Invalid type".to_string()),
                 }
-            },
+            }
             _ => Err("Invalid type".to_string()),
         }
     }
@@ -513,7 +509,9 @@ mod tests {
     fn test_type() {
         let mut table = Kernel::new();
 
-        table.type_table.insert(Rc::new(Type::B(BasicType::Int(256))));
+        table
+            .type_table
+            .insert(Rc::new(Type::B(BasicType::Int(256))));
         {
             let ty = Rc::new(Type::B(BasicType::Int(256)));
             println!("{}", table.type_table.contains(&ty));
@@ -526,19 +524,17 @@ mod tests {
     #[test]
     fn test_symbol_table() {
         let mut table = Kernel::new();
-        let data = DataRef::number_literal_to_data(
-            "100".to_string(),
-        ).unwrap();
+        let data = DataRef::number_literal_to_data("100".to_string()).unwrap();
 
         // table.symbol_table.insert("a".to_string(), Entry::Slot(data.clone())).is_none();
         // table.symbol_table.insert("a".to_string(), Entry::Slot(data.clone())).is_some();
         // if let Entry::Data(data) = table.lookup("a").unwrap() {
         //     *data = data2;
         // }
-        
-        table.symbol_table.insert("a".to_string(), 
-            Entry::Data(data.clone())
-        );
+
+        table
+            .symbol_table
+            .insert("a".to_string(), Entry::Data(data.clone()));
 
         dbg!(table.lookup("a"));
     }
@@ -566,7 +562,7 @@ pub mod primitive;
 pub mod data;
 
 pub mod prelude {
-    pub use super::types::*;
-    pub use super::primitive::*;
     pub use super::data::*;
+    pub use super::primitive::*;
+    pub use super::types::*;
 }

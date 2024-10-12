@@ -40,7 +40,7 @@ pub enum Operator {
     Div,
     Mod,
     Pow,
-    
+
     // bit operations
     BitwiseAnd,
     BitwiseOr,
@@ -67,7 +67,10 @@ impl Data {
             Data::Struct(map) => Data::Struct(
                 map.iter()
                     .map(|(name, data)| {
-                        (name.clone(), Rc::new(RefCell::new(data.borrow().deep_copy())))
+                        (
+                            name.clone(),
+                            Rc::new(RefCell::new(data.borrow().deep_copy())),
+                        )
                     })
                     .collect(),
             ),
@@ -79,7 +82,10 @@ impl Data {
             Data::Mapping(map) => Data::Mapping(
                 map.iter()
                     .map(|(key, data)| {
-                        (key.clone(), Rc::new(RefCell::new(data.borrow().deep_copy())))
+                        (
+                            key.clone(),
+                            Rc::new(RefCell::new(data.borrow().deep_copy())),
+                        )
                     })
                     .collect(),
             ),
@@ -92,7 +98,7 @@ impl Data {
         match (self, &*ty) {
             (Data::Basic(b), Type::B(ty_)) => {
                 b.sanity_check(ty_);
-            },
+            }
             (Data::Array(arr), Type::C(CompoundType::Array { len, value })) => {
                 if let Some(len) = len {
                     assert_eq!(arr.len(), *len as usize);
@@ -101,21 +107,20 @@ impl Data {
                 for data in arr.iter() {
                     data.borrow().sanity_check(value.clone());
                 }
-            },
-            (Data::Mapping(map),
-                Type::C(CompoundType::Mapping { key, value })) => {
+            }
+            (Data::Mapping(map), Type::C(CompoundType::Mapping { key, value })) => {
                 for (k, v) in map.iter() {
                     Data::Basic(k.clone()).sanity_check(key.clone());
                     v.borrow().sanity_check(value.clone());
                 }
-            },
+            }
             (Data::Struct(map), Type::C(CompoundType::Struct { fields, .. })) => {
                 for (name, ty) in fields.iter() {
                     let data = map.get(name).unwrap();
                     data.borrow().sanity_check(ty.clone());
                 }
-            },
-            (Data::Literal, Type::NumLiteral(_)) => {},
+            }
+            (Data::Literal, Type::NumLiteral(_)) => {}
             _ => unreachable!(),
         }
     }
@@ -136,7 +141,8 @@ impl DataRef {
                 ty: ty.clone(),
                 data: Rc::new(RefCell::new(Data::Array(
                     (0..(*len).unwrap_or(0))
-                        .map(|_| DataRef::default(value.clone(), indirection).data).collect(),
+                        .map(|_| DataRef::default(value.clone(), indirection).data)
+                        .collect(),
                 ))),
             },
             Type::C(CompoundType::Mapping { .. }) => Self {
@@ -150,8 +156,9 @@ impl DataRef {
                 data: Rc::new(RefCell::new(Data::Struct(
                     fields
                         .iter()
-                        .map(|(name, ty)|
-                            (name.clone(), DataRef::default(ty.clone(), indirection).data))
+                        .map(|(name, ty)| {
+                            (name.clone(), DataRef::default(ty.clone(), indirection).data)
+                        })
                         .collect(),
                 ))),
             },
@@ -182,13 +189,12 @@ impl DataRef {
         }
 
         let rhs = match &*self.ty {
-            Type::NumLiteral(num) => {
-                Self {
-                    indirection: Indirection::RValue,
-                    ty: ty.clone(),
-                    data: Rc::new(RefCell::new(Data::Basic(
-                        Primitive::Num(num.numerator.clone())))),
-                }
+            Type::NumLiteral(num) => Self {
+                indirection: Indirection::RValue,
+                ty: ty.clone(),
+                data: Rc::new(RefCell::new(Data::Basic(Primitive::Num(
+                    num.numerator.clone(),
+                )))),
             },
             _ => self.clone(),
         };
@@ -226,13 +232,12 @@ impl DataRef {
         }
 
         let rhs = match &*rhs.ty {
-            Type::NumLiteral(num) => {
-                Self {
-                    indirection: Indirection::RValue,
-                    ty: self.ty.clone(),
-                    data: Rc::new(RefCell::new(Data::Basic(
-                        Primitive::Num(num.numerator.clone())))),
-                }
+            Type::NumLiteral(num) => Self {
+                indirection: Indirection::RValue,
+                ty: self.ty.clone(),
+                data: Rc::new(RefCell::new(Data::Basic(Primitive::Num(
+                    num.numerator.clone(),
+                )))),
             },
             _ => rhs.clone(),
         };
@@ -260,9 +265,14 @@ impl DataRef {
             _ => unreachable!(),
         };
 
-        let data = data.into_iter().map(|d| {
-            d.assign_to(value_ty.clone(), Indirection::LValue).unwrap().data
-        }).collect();
+        let data = data
+            .into_iter()
+            .map(|d| {
+                d.assign_to(value_ty.clone(), Indirection::LValue)
+                    .unwrap()
+                    .data
+            })
+            .collect();
 
         let data = Self {
             indirection: Indirection::RValue,
@@ -314,7 +324,7 @@ impl DataRef {
                             indirection: Indirection::RValue,
                             ty: Rc::new(Type::B(BasicType::Uint(256))),
                             data: Rc::new(RefCell::new(Data::Basic(Primitive::from_integer(
-                                arr.len() as u32
+                                arr.len() as u32,
                             )))),
                         });
                     }
@@ -322,7 +332,7 @@ impl DataRef {
                 } else {
                     unreachable!()
                 }
-            },
+            }
             Type::C(CompoundType::Struct { fields, .. }) => {
                 if let Data::Struct(map) = &*self.data.borrow() {
                     for (field_name, ty) in fields.iter() {
@@ -338,7 +348,7 @@ impl DataRef {
                 } else {
                     unreachable!()
                 }
-            },
+            }
             _ => Err(format!("Type {:?} does not have member {}", self.ty, name)),
         }
     }
@@ -350,14 +360,13 @@ impl DataRef {
         match &*self.ty {
             Type::C(CompoundType::Array { value, .. }) => {
                 if name == "push" {
-                    let arg = if args.len() == 0 {
+                    let arg = if !args.is_empty() {
                         DataRef::default(value.clone(), Indirection::RValue)
                     } else if args.len() == 1 {
                         args[0].assign_to(value.clone(), Indirection::RValue)?
                     } else {
                         return Err("push() takes exactly 1 argument".to_string());
                     };
-
 
                     if let Data::Array(arr) = &mut *self.data.borrow_mut() {
                         arr.push(arg.data);
@@ -367,7 +376,7 @@ impl DataRef {
 
                     Ok(None)
                 } else if name == "pop" {
-                    if args.len() != 0 {
+                    if !args.is_empty() {
                         return Err("pop() takes no argument".to_string());
                     }
 
@@ -380,7 +389,7 @@ impl DataRef {
                 } else {
                     Err(format!("Array does not have method {}", name))
                 }
-            },
+            }
             _ => Err(format!("Type {:?} does not have method {}", self.ty, name)),
         }
     }
@@ -388,7 +397,8 @@ impl DataRef {
     pub fn subscript(&self, idx: Self) -> Result<Self, String> {
         match &*self.ty {
             Type::C(CompoundType::Array { value, .. }) => {
-                let idx = idx.assign_to(Rc::new(Type::B(BasicType::Uint(256))), Indirection::RValue)?;
+                let idx =
+                    idx.assign_to(Rc::new(Type::B(BasicType::Uint(256))), Indirection::RValue)?;
                 let idx = match &*idx.data.borrow() {
                     Data::Basic(Primitive::Num(num)) => num.clone(),
                     _ => unreachable!(),
@@ -413,7 +423,7 @@ impl DataRef {
                 } else {
                     unreachable!()
                 }
-            },
+            }
             Type::C(CompoundType::Mapping { key, value }) => {
                 let idx = idx.assign_to(key.clone(), Indirection::RValue)?;
                 let idx = match &*idx.data.borrow() {
@@ -423,7 +433,10 @@ impl DataRef {
 
                 if let Data::Mapping(map) = &mut *self.data.borrow_mut() {
                     if !map.contains_key(&idx) {
-                        map.insert(idx.clone(), DataRef::default(value.clone(), Indirection::RValue).data);
+                        map.insert(
+                            idx.clone(),
+                            DataRef::default(value.clone(), Indirection::RValue).data,
+                        );
                     }
 
                     Ok(DataRef {
@@ -434,31 +447,28 @@ impl DataRef {
                 } else {
                     unreachable!()
                 }
-            },
+            }
             _ => Err("Subscript operator is not supported".to_string()),
         }
     }
 
-    pub fn deduct_common_types(data: &Vec<Self>) -> Result<Ty, String> {
+    pub fn deduct_common_types(data: &[Self]) -> Result<Ty, String> {
         let tys = data.iter().map(|d| d.ty.clone()).collect::<Vec<_>>();
         Type::deduct_common_types(tys)
     }
 
     // TODO: can create a macro for vanity_check
     fn sanity_check(&self) {
-        match (self.indirection, &*self.ty) {
-            (Indirection::Ref, Type::B(_)) => panic!("Ref cannot be a basic type"),
-            _ => {},
+        if let (Indirection::Ref, Type::B(_)) = (self.indirection, &*self.ty) {
+            panic!("Ref cannot be a basic type");
         }
         self.ty.sanity_check();
         self.data.borrow().sanity_check(self.ty.clone());
     }
 
-
     pub fn op(&self, op: Operator, rhs: &Self) -> Result<Self, String> {
         match (&*self.ty, &*rhs.ty) {
-            (Type::NumLiteral(num1),
-                Type::NumLiteral(num2)) => {
+            (Type::NumLiteral(num1), Type::NumLiteral(num2)) => {
                 let result = match op {
                     Operator::Add => num1 + num2,
                     Operator::Sub => num1 - num2,
@@ -472,46 +482,48 @@ impl DataRef {
                     ty: Rc::new(Type::NumLiteral(result)),
                     data: Rc::new(RefCell::new(Data::Literal)),
                 })
-            },
+            }
 
-            (Type::B(BasicType::Uint(_)) | Type::B(BasicType::Int(_)) | Type::NumLiteral(_),
-                Type::B(BasicType::Uint(_)) | Type::B(BasicType::Int(_)) | Type::NumLiteral(_)) => {
-                    let ty = Type::deduct_common_types(vec![self.ty.clone(), rhs.ty.clone()])?;
-                    let lhs = self.assign_to(ty.clone(), Indirection::RValue)?;
-                    let rhs = rhs.assign_to(ty.clone(), Indirection::RValue)?;
+            (
+                Type::B(BasicType::Uint(_)) | Type::B(BasicType::Int(_)) | Type::NumLiteral(_),
+                Type::B(BasicType::Uint(_)) | Type::B(BasicType::Int(_)) | Type::NumLiteral(_),
+            ) => {
+                let ty = Type::deduct_common_types(vec![self.ty.clone(), rhs.ty.clone()])?;
+                let lhs = self.assign_to(ty.clone(), Indirection::RValue)?;
+                let rhs = rhs.assign_to(ty.clone(), Indirection::RValue)?;
 
-                    let lhs = match &*lhs.data.borrow() {
-                        Data::Basic(Primitive::Num(b)) => b.clone(),
-                        _ => unreachable!(),
-                    };
+                let lhs = match &*lhs.data.borrow() {
+                    Data::Basic(Primitive::Num(b)) => b.clone(),
+                    _ => unreachable!(),
+                };
 
-                    let rhs = match &*rhs.data.borrow() {
-                        Data::Basic(Primitive::Num(b)) => b.clone(),
-                        _ => unreachable!(),
-                    };
+                let rhs = match &*rhs.data.borrow() {
+                    Data::Basic(Primitive::Num(b)) => b.clone(),
+                    _ => unreachable!(),
+                };
 
-                    let res = match op {
-                        Operator::Add => lhs + rhs,
-                        Operator::Sub => lhs - rhs,
-                        Operator::Mul => lhs * rhs,
-                        Operator::Div => lhs / rhs,
-                        _ => unimplemented!(),
-                    };
+                let res = match op {
+                    Operator::Add => lhs + rhs,
+                    Operator::Sub => lhs - rhs,
+                    Operator::Mul => lhs * rhs,
+                    Operator::Div => lhs / rhs,
+                    _ => unimplemented!(),
+                };
 
-                    let primitive = Primitive::Num(res);
-                    if match &*ty {
-                        Type::B(b) => primitive.overflow(b),
-                        _ => unreachable!(),
-                    } {
-                        Err("overflow".to_string())
-                    } else {
-                        Ok(Self {
-                            indirection: Indirection::RValue,
-                            ty,
-                            data: Rc::new(RefCell::new(Data::Basic(primitive))),
-                        })
-                    }
-                },
+                let primitive = Primitive::Num(res);
+                if match &*ty {
+                    Type::B(b) => primitive.overflow(b),
+                    _ => unreachable!(),
+                } {
+                    Err("overflow".to_string())
+                } else {
+                    Ok(Self {
+                        indirection: Indirection::RValue,
+                        ty,
+                        data: Rc::new(RefCell::new(Data::Basic(primitive))),
+                    })
+                }
+            }
 
             _ => unimplemented!(),
         }
